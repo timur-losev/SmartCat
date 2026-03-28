@@ -38,7 +38,7 @@ class QdrantStore:
         if self._client is None:
             from qdrant_client import QdrantClient
 
-            self._client = QdrantClient(host=self.host, port=self.port)
+            self._client = QdrantClient(host=self.host, port=self.port, timeout=120)
             log.info("qdrant.connected", host=self.host, port=self.port)
         return self._client
 

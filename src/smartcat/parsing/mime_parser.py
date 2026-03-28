@@ -15,6 +15,15 @@ from dateutil import parser as dateutil_parser
 
 
 @dataclass
+class Attachment:
+    """Binary attachment extracted from MIME email."""
+
+    filename: str
+    content_type: str
+    data: bytes
+
+
+@dataclass
 class ParsedEmail:
     """Structured representation of a parsed email."""
 
@@ -45,6 +54,9 @@ class ParsedEmail:
 
     # For production: attachment filenames referenced in body
     referenced_files: list[str] = field(default_factory=list)
+
+    # Binary attachments extracted from MIME parts
+    attachments: list[Attachment] = field(default_factory=list)
 
     # Raw headers for thread reconstruction
     in_reply_to: str = ""
@@ -226,14 +238,30 @@ def parse_email_file(file_path: Path) -> ParsedEmail:
     file_refs = _FILE_REF_PATTERN.findall(body_text)
     referenced_files = [ref for group in file_refs for ref in group if ref]
 
-    # Check for MIME attachments
+    # Extract MIME attachments (binary payloads)
     has_attachments = False
+    mime_attachments: list[Attachment] = []
     if msg.is_multipart():
         for part in msg.walk():
             disp = str(part.get("Content-Disposition", ""))
-            if "attachment" in disp:
-                has_attachments = True
-                break
+            ct = part.get_content_type()
+
+            # Skip text body parts
+            if ct in ("text/plain", "text/html") and "attachment" not in disp:
+                continue
+            if part.get_content_maintype() == "multipart":
+                continue
+
+            if "attachment" in disp or ct not in ("text/plain", "text/html"):
+                payload = part.get_payload(decode=True)
+                if payload and len(payload) > 0:
+                    filename = part.get_filename() or ""
+                    mime_attachments.append(Attachment(
+                        filename=filename,
+                        content_type=ct,
+                        data=payload,
+                    ))
+                    has_attachments = True
 
     # Also treat file references as attachment indicators
     if referenced_files:
@@ -269,6 +297,7 @@ def parse_email_file(file_path: Path) -> ParsedEmail:
         has_reply_content=has_reply,
         has_attachments=has_attachments,
         referenced_files=referenced_files,
+        attachments=mime_attachments,
         in_reply_to=in_reply_to,
         references=references,
     )

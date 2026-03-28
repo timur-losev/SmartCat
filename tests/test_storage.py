@@ -207,6 +207,77 @@ class TestIngestionTracking:
         assert tmp_store.get_error_count() == 1
 
 
+class TestChunkStorage:
+    def test_insert_and_count_chunks(self, tmp_store):
+        conn = tmp_store.connect()
+        # Insert a minimal email first
+        import hashlib
+        fp = hashlib.sha256(b"test").hexdigest()
+        conn.execute(
+            """INSERT INTO emails (email_id, message_id, fingerprint, subject, body_text,
+               date_sent, from_address) VALUES (1, 'msg-1', ?, 'Test', 'Body', '2001-01-01', 'a@b.com')""",
+            (fp,),
+        )
+        conn.commit()
+
+        chunks = [
+            {"chunk_id": "c1", "email_id": 1, "chunk_type": "summary",
+             "chunk_index": 0, "text": "Summary text", "token_count": 10},
+            {"chunk_id": "c2", "email_id": 1, "chunk_type": "body",
+             "chunk_index": 1, "text": "Body text", "token_count": 5},
+        ]
+        inserted = tmp_store.insert_chunks(chunks)
+        conn.commit()
+        assert inserted == 2
+        assert tmp_store.get_chunk_count() == 2
+
+    def test_get_emails_without_chunks(self, tmp_store):
+        conn = tmp_store.connect()
+        import hashlib
+        for i in range(1, 4):
+            fp = hashlib.sha256(f"test{i}".encode()).hexdigest()
+            conn.execute(
+                """INSERT INTO emails (email_id, message_id, fingerprint, subject, body_text,
+                   date_sent, from_address) VALUES (?, ?, ?, 'Test', 'Body', '2001-01-01', 'a@b.com')""",
+                (i, f"msg-{i}", fp),
+            )
+        conn.commit()
+
+        # All 3 should need chunks
+        unchunked = tmp_store.get_emails_without_chunks()
+        assert len(unchunked) == 3
+
+        # Chunk email 1
+        tmp_store.insert_chunks([{
+            "chunk_id": "c1", "email_id": 1, "chunk_type": "summary",
+            "chunk_index": 0, "text": "txt", "token_count": 5,
+        }])
+        conn.commit()
+
+        unchunked = tmp_store.get_emails_without_chunks()
+        assert len(unchunked) == 2
+
+    def test_insert_chunks_idempotent(self, tmp_store):
+        conn = tmp_store.connect()
+        import hashlib
+        fp = hashlib.sha256(b"test").hexdigest()
+        conn.execute(
+            """INSERT INTO emails (email_id, message_id, fingerprint, subject, body_text,
+               date_sent, from_address) VALUES (1, 'msg-1', ?, 'Test', 'Body', '2001-01-01', 'a@b.com')""",
+            (fp,),
+        )
+        conn.commit()
+
+        chunk = {"chunk_id": "c1", "email_id": 1, "chunk_type": "summary",
+                 "chunk_index": 0, "text": "txt", "token_count": 5}
+        tmp_store.insert_chunks([chunk])
+        conn.commit()
+        # Insert same chunk again — should not error (OR IGNORE)
+        tmp_store.insert_chunks([chunk])
+        conn.commit()
+        assert tmp_store.get_chunk_count() == 1
+
+
 class TestStats:
     @skip_no_maildir
     def test_get_stats(self, tmp_store, sample_email_path):

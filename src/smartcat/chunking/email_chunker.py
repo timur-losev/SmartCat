@@ -22,6 +22,7 @@ class EmailChunk:
     chunk_index: int
     text: str
     token_count: int  # approximate
+    email_id: int = 0  # internal PK for SQLite FK
 
     # Metadata for Qdrant payload
     date_sent: str = ""
@@ -154,6 +155,7 @@ def chunk_email(
     thread_id: str = "",
     has_monetary: bool = False,
     has_attachment: bool = False,
+    email_id: int | None = None,
     summary_max_chars: int = 200,
     chunk_max_tokens: int = 512,
     chunk_overlap_tokens: int = 50,
@@ -170,8 +172,11 @@ def chunk_email(
     def _make_id() -> str:
         return f"{message_id[:40]}_{chunk_idx}_{uuid.uuid4().hex[:8]}"
 
+    eid = email_id or 0
+
     # Common metadata for all chunks
     meta = dict(
+        email_id=eid,
         date_sent=date_sent,
         from_address=from_address,
         to_addresses=to_addrs,

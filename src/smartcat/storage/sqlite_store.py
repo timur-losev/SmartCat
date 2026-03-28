@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from smartcat.config import SQLITE_DB_PATH
-from smartcat.parsing.mime_parser import ParsedEmail
+from smartcat.parsing.mime_parser import Attachment, ParsedEmail
 
 
 def compute_fingerprint(parsed: ParsedEmail) -> str:
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS entities (
     context TEXT NOT NULL DEFAULT ''  -- surrounding sentence
 );
 
--- Attachment metadata
+-- Attachment metadata and binary data
 CREATE TABLE IF NOT EXISTS attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email_id INTEGER NOT NULL REFERENCES emails(email_id),
@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS attachments (
     content_type TEXT NOT NULL DEFAULT '',
     file_hash TEXT,
     extracted_text TEXT,
-    page_count INTEGER
+    page_count INTEGER,
+    data BLOB  -- raw binary payload from MIME
 );
 
 -- Chunks for embedding — carries full citation provenance
@@ -329,7 +330,16 @@ class EmailStore:
                         (email_id, pid),
                     )
 
-            # Insert attachment references from body
+            # Insert binary MIME attachments
+            for att in getattr(parsed, "attachments", []):
+                file_hash = hashlib.sha256(att.data).hexdigest() if att.data else None
+                conn.execute(
+                    """INSERT INTO attachments (email_id, filename, content_type, file_hash, data)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (email_id, att.filename, att.content_type, file_hash, att.data),
+                )
+
+            # Insert attachment references from body (text-only refs like << File: ... >>)
             for filename in parsed.referenced_files:
                 conn.execute(
                     "INSERT INTO attachments (email_id, filename) VALUES (?, ?)",
@@ -566,3 +576,140 @@ class EmailStore:
         conn = self.connect()
         row = conn.execute("SELECT COUNT(*) as cnt FROM processing_errors").fetchone()
         return row["cnt"]
+
+    def get_chunk_count(self) -> int:
+        conn = self.connect()
+        row = conn.execute("SELECT COUNT(*) as cnt FROM chunks").fetchone()
+        return row["cnt"]
+
+    # -- Chunk methods --
+
+    def insert_chunks(self, chunks: list[dict]) -> int:
+        """Batch insert chunks. Each dict must have: chunk_id, email_id, chunk_type,
+        chunk_index, text, token_count. Optional: attachment_id, page_range,
+        char_offset_start, char_offset_end.
+
+        Returns number of chunks inserted.
+        """
+        if not chunks:
+            return 0
+        conn = self.connect()
+        conn.executemany(
+            """INSERT OR IGNORE INTO chunks
+               (chunk_id, email_id, attachment_id, chunk_type, chunk_index,
+                text, token_count, page_range, char_offset_start, char_offset_end)
+               VALUES (:chunk_id, :email_id, :attachment_id, :chunk_type, :chunk_index,
+                       :text, :token_count, :page_range, :char_offset_start, :char_offset_end)""",
+            [
+                {
+                    "chunk_id": c["chunk_id"],
+                    "email_id": c["email_id"],
+                    "attachment_id": c.get("attachment_id"),
+                    "chunk_type": c["chunk_type"],
+                    "chunk_index": c["chunk_index"],
+                    "text": c["text"],
+                    "token_count": c["token_count"],
+                    "page_range": c.get("page_range"),
+                    "char_offset_start": c.get("char_offset_start"),
+                    "char_offset_end": c.get("char_offset_end"),
+                }
+                for c in chunks
+            ],
+        )
+        return len(chunks)
+
+    def get_emails_without_chunks(self, limit: int = 10000) -> list[dict]:
+        """Get emails that haven't been chunked yet."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT e.email_id, e.message_id, e.subject, e.body_text,
+                      e.from_address, e.from_name, e.date_sent,
+                      e.thread_id, e.has_attachments
+               FROM emails e
+               LEFT JOIN chunks c ON e.email_id = c.email_id
+               WHERE c.chunk_id IS NULL
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # -- Docling conversion methods --
+
+    def get_html_emails_for_conversion(self, limit: int = 10000) -> list[dict]:
+        """Get emails with HTML content that need conversion to clean text."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT email_id, body_text, body_html, content_type
+               FROM emails
+               WHERE content_type = 'text/html'
+                  OR body_html IS NOT NULL
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_email_body(self, email_id: int, body_text: str):
+        """Update email body_text after HTML→markdown conversion."""
+        conn = self.connect()
+        conn.execute(
+            "UPDATE emails SET body_text = ?, char_count = ? WHERE email_id = ?",
+            (body_text, len(body_text), email_id),
+        )
+
+    def get_attachments_without_text(self, limit: int = 10000) -> list[dict]:
+        """Get attachments that have binary data but no extracted text."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT id, email_id, filename, content_type, data
+               FROM attachments
+               WHERE extracted_text IS NULL AND data IS NOT NULL
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_attachment_text(self, attachment_id: int, extracted_text: str, page_count: int = 0):
+        """Update attachment with extracted text from Docling."""
+        conn = self.connect()
+        conn.execute(
+            "UPDATE attachments SET extracted_text = ?, page_count = ? WHERE id = ?",
+            (extracted_text, page_count, attachment_id),
+        )
+
+    def get_attachment_count(self) -> dict:
+        """Get attachment stats."""
+        conn = self.connect()
+        row = conn.execute(
+            """SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN data IS NOT NULL THEN 1 ELSE 0 END) as with_data,
+                SUM(CASE WHEN extracted_text IS NOT NULL THEN 1 ELSE 0 END) as with_text
+               FROM attachments"""
+        ).fetchone()
+        return dict(row) if row else {}
+
+    def insert_attachment(self, email_id: int, filename: str, content_type: str,
+                          data: bytes, file_hash: str = "") -> int:
+        """Insert a single attachment with binary data. Returns attachment id."""
+        conn = self.connect()
+        cursor = conn.execute(
+            """INSERT INTO attachments (email_id, filename, content_type, file_hash, data)
+               VALUES (?, ?, ?, ?, ?)""",
+            (email_id, filename, content_type, file_hash, data),
+        )
+        return cursor.lastrowid
+
+    def get_chunks_for_embedding(self, limit: int = 10000, offset: int = 0) -> list[dict]:
+        """Get chunks that need embedding (for batch embedding pipeline)."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT c.chunk_id, c.email_id, c.chunk_type, c.chunk_index, c.text,
+                      c.token_count, e.message_id, e.date_sent, e.from_address,
+                      e.thread_id, e.has_attachments
+               FROM chunks c
+               JOIN emails e ON c.email_id = e.email_id
+               ORDER BY c.email_id, c.chunk_index
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows]

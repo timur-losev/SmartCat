@@ -30,7 +30,7 @@ class Embedder:
             from sentence_transformers import SentenceTransformer
 
             log.info("embedder.loading", model=self.model_name, device=self._device)
-            kwargs = {}
+            kwargs = {"trust_remote_code": True}
             if self._device:
                 kwargs["device"] = self._device
             self._model = SentenceTransformer(self.model_name, **kwargs)
@@ -62,7 +62,7 @@ class Embedder:
             numpy array of shape (len(texts), embedding_dim).
         """
         self._load_model()
-        log.info("embedder.encoding", count=len(texts), batch_size=self.batch_size)
+        log.debug("embedder.encoding", count=len(texts), batch_size=self.batch_size)
 
         # nomic-embed-text requires "search_document: " prefix for documents
         # and "search_query: " for queries
@@ -73,7 +73,9 @@ class Embedder:
             batch_size=self.batch_size,
             show_progress_bar=show_progress,
             normalize_embeddings=normalize,
+            convert_to_numpy=True,
         )
+        del prefixed
         return embeddings
 
     def embed_query(self, query: str, normalize: bool = True) -> np.ndarray:

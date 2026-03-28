@@ -140,3 +140,13 @@ class TestChunkEmail:
         )
         for chunk in chunks:
             assert chunk.token_count > 0
+
+    def test_email_id_propagated(self):
+        chunks = chunk_email(
+            message_id="test-123",
+            subject="Test",
+            body_text="Body content.",
+            email_id=42,
+        )
+        for chunk in chunks:
+            assert chunk.email_id == 42
