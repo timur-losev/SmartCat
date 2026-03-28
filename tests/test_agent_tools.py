@@ -14,15 +14,17 @@ class TestAgentTools:
     def tools_with_data(self, tmp_store):
         """Create AgentTools with some test data (no vector search)."""
         # Insert a few emails
+        last_email_id = None
         for f in sorted((MAILDIR / "allen-p" / "inbox").iterdir())[:5]:
             parsed = parse_email_file(f)
-            tmp_store.insert_email(parsed)
+            email_id, _ = tmp_store.insert_email(parsed)
+            last_email_id = email_id
 
         # Insert entities manually
         conn = tmp_store.connect()
         conn.execute(
-            "INSERT INTO entities (message_id, entity_type, entity_value, context) VALUES (?, ?, ?, ?)",
-            (parsed.message_id, "monetary", "$5,000", "The total was $5,000 for the project."),
+            "INSERT INTO entities (email_id, entity_type, entity_value, context) VALUES (?, ?, ?, ?)",
+            (last_email_id, "monetary", "$5,000", "The total was $5,000 for the project."),
         )
         conn.commit()
 

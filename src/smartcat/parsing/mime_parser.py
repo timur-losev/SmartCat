@@ -40,6 +40,9 @@ class ParsedEmail:
     has_reply_content: bool = False
     has_attachments: bool = False
 
+    # Preserved raw HTML body for production re-processing
+    body_html: Optional[str] = None
+
     # For production: attachment filenames referenced in body
     referenced_files: list[str] = field(default_factory=list)
 
@@ -106,39 +109,48 @@ def _parse_date(msg: Message) -> Optional[datetime]:
         return None
 
 
-def _extract_body(msg: Message) -> tuple[str, str]:
-    """Extract body text and content type from email message."""
+def _decode_payload(part: Message) -> Optional[str]:
+    """Decode a MIME part payload to string."""
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return None
+    charset = part.get_content_charset() or "utf-8"
+    try:
+        return payload.decode(charset, errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        return payload.decode("utf-8", errors="replace")
+
+
+def _extract_body(msg: Message) -> tuple[str, str, Optional[str]]:
+    """Extract body text, content type, and raw HTML from email message.
+
+    Returns:
+        (body_text, content_type, body_html_or_none)
+    """
+    plain_text = None
+    html_text = None
+
     if msg.is_multipart():
         for part in msg.walk():
             ct = part.get_content_type()
-            if ct == "text/plain":
-                payload = part.get_payload(decode=True)
-                if payload:
-                    charset = part.get_content_charset() or "utf-8"
-                    try:
-                        return payload.decode(charset, errors="replace"), ct
-                    except (LookupError, UnicodeDecodeError):
-                        return payload.decode("utf-8", errors="replace"), ct
-            elif ct == "text/html":
-                # Fall back to HTML if no plain text
-                payload = part.get_payload(decode=True)
-                if payload:
-                    charset = part.get_content_charset() or "utf-8"
-                    try:
-                        return payload.decode(charset, errors="replace"), ct
-                    except (LookupError, UnicodeDecodeError):
-                        return payload.decode("utf-8", errors="replace"), ct
-        return "", "text/plain"
+            if ct == "text/plain" and plain_text is None:
+                plain_text = _decode_payload(part)
+            elif ct == "text/html" and html_text is None:
+                html_text = _decode_payload(part)
     else:
-        payload = msg.get_payload(decode=True)
         ct = msg.get_content_type()
-        if payload:
-            charset = msg.get_content_charset() or "utf-8"
-            try:
-                return payload.decode(charset, errors="replace"), ct
-            except (LookupError, UnicodeDecodeError):
-                return payload.decode("utf-8", errors="replace"), ct
-        return "", ct
+        decoded = _decode_payload(msg)
+        if ct == "text/html":
+            html_text = decoded
+        else:
+            plain_text = decoded
+
+    # Prefer plain text; preserve HTML separately
+    if plain_text is not None:
+        return plain_text, "text/plain", html_text
+    elif html_text is not None:
+        return html_text, "text/html", html_text
+    return "", "text/plain", None
 
 
 def parse_email_file(file_path: Path) -> ParsedEmail:
@@ -204,7 +216,7 @@ def parse_email_file(file_path: Path) -> ParsedEmail:
     bcc_addresses = [addr.strip() for addr in bcc_raw.split(",") if addr.strip()] if bcc_raw else []
 
     # Body
-    body_text, content_type = _extract_body(msg)
+    body_text, content_type, body_html = _extract_body(msg)
 
     # Detect forwarded/reply content
     has_forwarded = bool(_FORWARDED_PATTERN.search(body_text))
@@ -249,6 +261,7 @@ def parse_email_file(file_path: Path) -> ParsedEmail:
         cc_addresses=cc_addresses,
         cc_names=cc_names,
         bcc_addresses=bcc_addresses,
+        body_html=body_html,
         x_folder=x_folder,
         x_origin=x_origin,
         source_path=str(file_path),

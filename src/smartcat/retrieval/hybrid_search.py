@@ -83,7 +83,7 @@ class HybridSearcher:
                 filters=vector_filters,
             )
             vector_ranked = [
-                (r["payload"].get("message_id", r["id"]), r["score"])
+                (r["payload"].get("email_id", r["id"]), r["score"])
                 for r in vector_results
             ]
             ranked_lists.append(vector_ranked)
@@ -91,11 +91,11 @@ class HybridSearcher:
         except Exception as e:
             log.warning("search.vector.failed", error=str(e))
 
-        # Channel 2: Keyword search (BM25 via FTS5)
+        # Channel 2: Keyword search (BM25 via FTS5, covers emails + attachments)
         try:
             fts_results = self.sqlite.search_fts(query, limit=self.top_k)
             fts_ranked = [
-                (r["message_id"], abs(r.get("rank", 0)))
+                (r["email_id"], abs(r.get("rank", 0)))
                 for r in fts_results
             ]
             ranked_lists.append(fts_ranked)
@@ -111,11 +111,12 @@ class HybridSearcher:
 
         # Take top_n and enrich with email metadata
         results = []
-        for message_id, rrf_score in fused[:top_n]:
-            email = self.sqlite.get_email(message_id)
+        for email_id, rrf_score in fused[:top_n]:
+            email = self.sqlite.get_email(email_id)
             if email:
                 results.append({
-                    "message_id": message_id,
+                    "email_id": email_id,
+                    "message_id": email.get("message_id", ""),
                     "rrf_score": rrf_score,
                     "subject": email.get("subject", ""),
                     "from_address": email.get("from_address", ""),

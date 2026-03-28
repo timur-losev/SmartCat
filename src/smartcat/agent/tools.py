@@ -67,11 +67,12 @@ class AgentTools:
             },
             {
                 "name": "get_email",
-                "description": "Get the full content of a specific email by its Message-ID.",
+                "description": "Get the full content of a specific email by its email_id (integer) or message_id (string).",
                 "parameters": {
-                    "message_id": {"type": "string", "description": "Email Message-ID"},
+                    "email_id": {"type": "integer", "description": "Internal email ID (preferred)"},
+                    "message_id": {"type": "string", "description": "External Message-ID (fallback)"},
                 },
-                "required": ["message_id"],
+                "required": [],
             },
             {
                 "name": "get_thread",
@@ -122,7 +123,7 @@ class AgentTools:
                 f"From: {r.get('from_name') or r.get('from_address', 'Unknown')} | "
                 f"Subject: {r.get('subject', '(no subject)')} | "
                 f"Score: {score:.3f}\n"
-                f"   Message-ID: {r['message_id']}\n"
+                f"   ID: {r['email_id']} (Message-ID: {r.get('message_id', 'N/A')})\n"
                 f"   Thread: {r.get('thread_id', 'N/A')}\n"
                 f"   Preview: {body_preview}\n"
             )
@@ -139,7 +140,7 @@ class AgentTools:
                 f"{i}. [{r.get('date_sent', 'N/A')[:10]}] "
                 f"From: {r.get('from_name') or r.get('from_address', 'Unknown')} | "
                 f"Subject: {r.get('subject', '(no subject)')}\n"
-                f"   Message-ID: {r['message_id']}\n"
+                f"   ID: {r['email_id']} (Message-ID: {r.get('message_id', 'N/A')})\n"
             )
         return "\n".join(lines)
 
@@ -156,7 +157,7 @@ class AgentTools:
                 f"{i}. [{r.get('date_sent', 'N/A')[:10]}] "
                 f"From: {r.get('from_name') or r.get('from_address', 'Unknown')} | "
                 f"Subject: {r.get('subject', '(no subject)')}\n"
-                f"   Message-ID: {r['message_id']}\n"
+                f"   ID: {r['email_id']} (Message-ID: {r.get('message_id', 'N/A')})\n"
             )
         return "\n".join(lines)
 
@@ -175,26 +176,38 @@ class AgentTools:
                 f"Subject: {r.get('subject', '(no subject)')}\n"
                 f"   Value: {r.get('entity_value', '')}\n"
                 f"   Context: {r.get('context', '')[:200]}\n"
-                f"   Message-ID: {r['message_id']}\n"
+                f"   ID: {r['email_id']} (Message-ID: {r.get('message_id', 'N/A')})\n"
             )
         return "\n".join(lines)
 
-    def _tool_get_email(self, message_id: str) -> str:
-        email = self.store.get_email(message_id)
-        if not email:
-            return f"Email not found: {message_id}"
+    def _tool_get_email(
+        self, email_id: Optional[int] = None, message_id: Optional[str] = None
+    ) -> str:
+        if email_id is not None:
+            email_data = self.store.get_email(email_id)
+        elif message_id is not None:
+            email_data = self.store.get_email_by_message_id(message_id)
+        else:
+            return "Error: provide either email_id or message_id"
 
-        body = email.get("body_text", "")
+        if not email_data:
+            return f"Email not found: email_id={email_id}, message_id={message_id}"
+
+        body = email_data.get("body_text", "")
         if len(body) > 2000:
             body = body[:2000] + "\n... [truncated]"
 
+        confidence = email_data.get("thread_confidence")
+        conf_str = f" (confidence: {confidence:.1f})" if confidence is not None else ""
+
         return (
-            f"Message-ID: {email['message_id']}\n"
-            f"Date: {email.get('date_sent', 'N/A')}\n"
-            f"From: {email.get('from_name', '')} <{email.get('from_address', '')}>\n"
-            f"Subject: {email.get('subject', '(no subject)')}\n"
-            f"Thread: {email.get('thread_id', 'N/A')}\n"
-            f"Attachments: {'Yes' if email.get('has_attachments') else 'No'}\n"
+            f"Email-ID: {email_data['email_id']}\n"
+            f"Message-ID: {email_data.get('message_id', 'N/A')}\n"
+            f"Date: {email_data.get('date_sent', 'N/A')}\n"
+            f"From: {email_data.get('from_name', '')} <{email_data.get('from_address', '')}>\n"
+            f"Subject: {email_data.get('subject', '(no subject)')}\n"
+            f"Thread: {email_data.get('thread_id', 'N/A')}{conf_str}\n"
+            f"Attachments: {'Yes' if email_data.get('has_attachments') else 'No'}\n"
             f"\n--- Body ---\n{body}"
         )
 
@@ -206,12 +219,14 @@ class AgentTools:
         lines = [f"Thread {thread_id} ({len(emails)} messages):\n"]
         for i, e in enumerate(emails, 1):
             body_preview = (e.get("body_text", "")[:200] + "...") if e.get("body_text") else ""
+            conf = e.get("thread_confidence")
+            conf_str = f" [confidence: {conf:.1f}]" if conf is not None else ""
             lines.append(
-                f"--- Message {i} ---\n"
+                f"--- Message {i}{conf_str} ---\n"
                 f"Date: {e.get('date_sent', 'N/A')}\n"
                 f"From: {e.get('from_name', '')} <{e.get('from_address', '')}>\n"
                 f"Subject: {e.get('subject', '')}\n"
-                f"Message-ID: {e['message_id']}\n"
+                f"Email-ID: {e['email_id']}\n"
                 f"Preview: {body_preview}\n"
             )
         return "\n".join(lines)

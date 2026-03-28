@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -11,18 +12,42 @@ from typing import Any, Optional
 from smartcat.config import SQLITE_DB_PATH
 from smartcat.parsing.mime_parser import ParsedEmail
 
+
+def compute_fingerprint(parsed: ParsedEmail) -> str:
+    """Compute a stable fingerprint for deduplication.
+
+    Uses sha256 of (from_address + date + subject + body_prefix).
+    Two emails with the same fingerprint are considered the same message,
+    even if their Message-ID differs or is missing.
+    """
+    parts = [
+        parsed.from_address.lower(),
+        parsed.date_sent.isoformat() if parsed.date_sent else "",
+        parsed.subject,
+        parsed.body_text[:500],
+    ]
+    raw = "|".join(parts)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
 _SCHEMA = """
--- Core email table (one row per unique Message-ID)
+-- Core email table: internal email_id as PK, message_id as external attribute.
+-- Dedup by fingerprint (hash of from+date+subject+body_prefix), NOT by message_id alone,
+-- because real-world message_ids can be empty, duplicated, or malformed.
 CREATE TABLE IF NOT EXISTS emails (
-    message_id TEXT PRIMARY KEY,
+    email_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT NOT NULL DEFAULT '',  -- external, may be empty/non-unique
+    fingerprint TEXT NOT NULL UNIQUE,     -- sha256(from+date+subject+body[:500])
     date_sent TEXT,  -- ISO 8601
     subject TEXT NOT NULL DEFAULT '',
     body_text TEXT NOT NULL DEFAULT '',
+    body_html TEXT,  -- preserved raw HTML for production re-processing
     content_type TEXT NOT NULL DEFAULT 'text/plain',
     from_address TEXT NOT NULL DEFAULT '',
     from_name TEXT NOT NULL DEFAULT '',
     thread_id TEXT,
-    parent_message_id TEXT,
+    parent_email_id INTEGER REFERENCES emails(email_id),
+    thread_confidence REAL,  -- 0.0-1.0, NULL=unset; 1.0=header-based, <0.7=subject-heuristic
+    thread_method TEXT,      -- 'header', 'subject', 'body_marker', NULL
     has_attachments INTEGER NOT NULL DEFAULT 0,
     has_forwarded_content INTEGER NOT NULL DEFAULT 0,
     has_reply_content INTEGER NOT NULL DEFAULT 0,
@@ -33,7 +58,7 @@ CREATE TABLE IF NOT EXISTS emails (
 -- Multiple instances of same email (sent_items + inbox, etc.)
 CREATE TABLE IF NOT EXISTS email_instances (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id TEXT NOT NULL REFERENCES emails(message_id),
+    email_id INTEGER NOT NULL REFERENCES emails(email_id),
     source_path TEXT NOT NULL UNIQUE,
     x_folder TEXT NOT NULL DEFAULT '',
     folder_owner TEXT NOT NULL DEFAULT '',
@@ -49,16 +74,16 @@ CREATE TABLE IF NOT EXISTS participants (
 
 -- Email-participant relationships
 CREATE TABLE IF NOT EXISTS email_participants (
-    message_id TEXT NOT NULL REFERENCES emails(message_id),
+    email_id INTEGER NOT NULL REFERENCES emails(email_id),
     participant_id INTEGER NOT NULL REFERENCES participants(id),
     role TEXT NOT NULL CHECK(role IN ('from', 'to', 'cc', 'bcc')),
-    PRIMARY KEY (message_id, participant_id, role)
+    PRIMARY KEY (email_id, participant_id, role)
 );
 
 -- Extracted entities (dates, amounts, document refs)
 CREATE TABLE IF NOT EXISTS entities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id TEXT NOT NULL REFERENCES emails(message_id),
+    email_id INTEGER NOT NULL REFERENCES emails(email_id),
     entity_type TEXT NOT NULL,  -- 'monetary', 'date_ref', 'document_ref', 'deal_id'
     entity_value TEXT NOT NULL,
     context TEXT NOT NULL DEFAULT ''  -- surrounding sentence
@@ -67,7 +92,7 @@ CREATE TABLE IF NOT EXISTS entities (
 -- Attachment metadata
 CREATE TABLE IF NOT EXISTS attachments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    message_id TEXT NOT NULL REFERENCES emails(message_id),
+    email_id INTEGER NOT NULL REFERENCES emails(email_id),
     filename TEXT NOT NULL,
     content_type TEXT NOT NULL DEFAULT '',
     file_hash TEXT,
@@ -75,15 +100,18 @@ CREATE TABLE IF NOT EXISTS attachments (
     page_count INTEGER
 );
 
--- Chunks for embedding
+-- Chunks for embedding — carries full citation provenance
 CREATE TABLE IF NOT EXISTS chunks (
     chunk_id TEXT PRIMARY KEY,
-    message_id TEXT NOT NULL REFERENCES emails(message_id),
+    email_id INTEGER NOT NULL REFERENCES emails(email_id),
     attachment_id INTEGER REFERENCES attachments(id),
     chunk_type TEXT NOT NULL,  -- 'summary', 'body', 'quoted', 'attachment'
     chunk_index INTEGER NOT NULL DEFAULT 0,
     text TEXT NOT NULL,
-    token_count INTEGER NOT NULL DEFAULT 0
+    token_count INTEGER NOT NULL DEFAULT 0,
+    page_range TEXT,       -- for attachment chunks: "3-5"
+    char_offset_start INTEGER,  -- span in source body_text
+    char_offset_end INTEGER
 );
 
 -- Ingestion tracking
@@ -101,38 +129,61 @@ CREATE TABLE IF NOT EXISTS processing_errors (
     timestamp TEXT NOT NULL
 );
 
--- Full-text search index
+-- Full-text search: covers emails AND attachment extracted text
 CREATE VIRTUAL TABLE IF NOT EXISTS emails_fts USING fts5(
     subject,
     body_text,
     content='emails',
-    content_rowid='rowid'
+    content_rowid='email_id'
 );
 
--- Triggers to keep FTS in sync
+-- Separate FTS for attachment content
+CREATE VIRTUAL TABLE IF NOT EXISTS attachments_fts USING fts5(
+    filename,
+    extracted_text,
+    content='attachments',
+    content_rowid='id'
+);
+
+-- Triggers to keep email FTS in sync
 CREATE TRIGGER IF NOT EXISTS emails_ai AFTER INSERT ON emails BEGIN
-    INSERT INTO emails_fts(rowid, subject, body_text) VALUES (new.rowid, new.subject, new.body_text);
+    INSERT INTO emails_fts(rowid, subject, body_text) VALUES (new.email_id, new.subject, new.body_text);
 END;
 
 CREATE TRIGGER IF NOT EXISTS emails_ad AFTER DELETE ON emails BEGIN
-    INSERT INTO emails_fts(emails_fts, rowid, subject, body_text) VALUES('delete', old.rowid, old.subject, old.body_text);
+    INSERT INTO emails_fts(emails_fts, rowid, subject, body_text) VALUES('delete', old.email_id, old.subject, old.body_text);
 END;
 
 CREATE TRIGGER IF NOT EXISTS emails_au AFTER UPDATE ON emails BEGIN
-    INSERT INTO emails_fts(emails_fts, rowid, subject, body_text) VALUES('delete', old.rowid, old.subject, old.body_text);
-    INSERT INTO emails_fts(rowid, subject, body_text) VALUES (new.rowid, new.subject, new.body_text);
+    INSERT INTO emails_fts(emails_fts, rowid, subject, body_text) VALUES('delete', old.email_id, old.subject, old.body_text);
+    INSERT INTO emails_fts(rowid, subject, body_text) VALUES (new.email_id, new.subject, new.body_text);
+END;
+
+-- Triggers to keep attachment FTS in sync
+CREATE TRIGGER IF NOT EXISTS attach_ai AFTER INSERT ON attachments
+WHEN new.extracted_text IS NOT NULL BEGIN
+    INSERT INTO attachments_fts(rowid, filename, extracted_text) VALUES (new.id, new.filename, new.extracted_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS attach_au AFTER UPDATE ON attachments
+WHEN new.extracted_text IS NOT NULL BEGIN
+    INSERT INTO attachments_fts(attachments_fts, rowid, filename, extracted_text) VALUES('delete', old.id, old.filename, COALESCE(old.extracted_text, ''));
+    INSERT INTO attachments_fts(rowid, filename, extracted_text) VALUES (new.id, new.filename, new.extracted_text);
 END;
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_emails_date ON emails(date_sent);
 CREATE INDEX IF NOT EXISTS idx_emails_thread ON emails(thread_id);
 CREATE INDEX IF NOT EXISTS idx_emails_from ON emails(from_address);
-CREATE INDEX IF NOT EXISTS idx_instances_msgid ON email_instances(message_id);
+CREATE INDEX IF NOT EXISTS idx_emails_msgid ON emails(message_id);
+CREATE INDEX IF NOT EXISTS idx_emails_fp ON emails(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_instances_eid ON email_instances(email_id);
 CREATE INDEX IF NOT EXISTS idx_participants_email ON participants(email);
-CREATE INDEX IF NOT EXISTS idx_ep_msgid ON email_participants(message_id);
+CREATE INDEX IF NOT EXISTS idx_ep_eid ON email_participants(email_id);
 CREATE INDEX IF NOT EXISTS idx_ep_pid ON email_participants(participant_id);
-CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type, message_id);
-CREATE INDEX IF NOT EXISTS idx_chunks_msgid ON chunks(message_id);
+CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type, email_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_eid ON chunks(email_id);
+CREATE INDEX IF NOT EXISTS idx_attach_eid ON attachments(email_id);
 CREATE INDEX IF NOT EXISTS idx_processed ON processed_files(status);
 """
 
@@ -201,33 +252,39 @@ class EmailStore:
 
     # -- Email insertion --
 
-    def insert_email(self, parsed: ParsedEmail) -> bool:
-        """Insert a parsed email. Returns True if new email, False if duplicate.
+    def insert_email(self, parsed: ParsedEmail) -> tuple[int, bool]:
+        """Insert a parsed email. Returns (email_id, is_new).
 
+        Deduplicates by fingerprint (not message_id).
         For duplicates, still inserts an email_instance record.
         """
         conn = self.connect()
+        fp = compute_fingerprint(parsed)
 
-        # Check if email already exists
+        # Check if email already exists by fingerprint
         existing = conn.execute(
-            "SELECT message_id FROM emails WHERE message_id = ?",
-            (parsed.message_id,),
+            "SELECT email_id FROM emails WHERE fingerprint = ?", (fp,)
         ).fetchone()
 
-        if not existing:
+        email_id: int
+        is_new = existing is None
+
+        if is_new:
             date_str = parsed.date_sent.isoformat() if parsed.date_sent else None
-            conn.execute(
+            cursor = conn.execute(
                 """INSERT INTO emails (
-                    message_id, date_sent, subject, body_text, content_type,
-                    from_address, from_name, has_attachments,
-                    has_forwarded_content, has_reply_content,
+                    message_id, fingerprint, date_sent, subject, body_text,
+                    body_html, content_type, from_address, from_name,
+                    has_attachments, has_forwarded_content, has_reply_content,
                     in_reply_to, char_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     parsed.message_id,
+                    fp,
                     date_str,
                     parsed.subject,
                     parsed.body_text,
+                    parsed.body_html if hasattr(parsed, "body_html") else None,
                     parsed.content_type,
                     parsed.from_address.lower(),
                     parsed.from_name,
@@ -238,13 +295,14 @@ class EmailStore:
                     len(parsed.body_text),
                 ),
             )
+            email_id = cursor.lastrowid
 
             # Insert participants
             if parsed.from_address:
                 pid = self.get_or_create_participant(parsed.from_address, parsed.from_name)
                 conn.execute(
                     "INSERT OR IGNORE INTO email_participants VALUES (?, ?, 'from')",
-                    (parsed.message_id, pid),
+                    (email_id, pid),
                 )
 
             for addr, name in zip(parsed.to_addresses, parsed.to_names or parsed.to_addresses):
@@ -252,7 +310,7 @@ class EmailStore:
                     pid = self.get_or_create_participant(addr, name)
                     conn.execute(
                         "INSERT OR IGNORE INTO email_participants VALUES (?, ?, 'to')",
-                        (parsed.message_id, pid),
+                        (email_id, pid),
                     )
 
             for addr, name in zip(parsed.cc_addresses, parsed.cc_names or parsed.cc_addresses):
@@ -260,7 +318,7 @@ class EmailStore:
                     pid = self.get_or_create_participant(addr, name)
                     conn.execute(
                         "INSERT OR IGNORE INTO email_participants VALUES (?, ?, 'cc')",
-                        (parsed.message_id, pid),
+                        (email_id, pid),
                     )
 
             for addr in parsed.bcc_addresses:
@@ -268,18 +326,19 @@ class EmailStore:
                     pid = self.get_or_create_participant(addr)
                     conn.execute(
                         "INSERT OR IGNORE INTO email_participants VALUES (?, ?, 'bcc')",
-                        (parsed.message_id, pid),
+                        (email_id, pid),
                     )
 
             # Insert attachment references from body
             for filename in parsed.referenced_files:
                 conn.execute(
-                    "INSERT INTO attachments (message_id, filename) VALUES (?, ?)",
-                    (parsed.message_id, filename),
+                    "INSERT INTO attachments (email_id, filename) VALUES (?, ?)",
+                    (email_id, filename),
                 )
+        else:
+            email_id = existing["email_id"]
 
         # Always insert the instance (tracks which folder/file this came from)
-        # Derive folder_owner from path: maildir/{owner}/...
         folder_owner = ""
         path_parts = Path(parsed.source_path).parts
         try:
@@ -291,10 +350,10 @@ class EmailStore:
 
         conn.execute(
             """INSERT OR IGNORE INTO email_instances
-               (message_id, source_path, x_folder, folder_owner, x_origin)
+               (email_id, source_path, x_folder, folder_owner, x_origin)
                VALUES (?, ?, ?, ?, ?)""",
             (
-                parsed.message_id,
+                email_id,
                 parsed.source_path,
                 parsed.x_folder,
                 folder_owner,
@@ -302,7 +361,7 @@ class EmailStore:
             ),
         )
 
-        return not existing
+        return email_id, is_new
 
     # -- Ingestion tracking --
 
@@ -329,9 +388,17 @@ class EmailStore:
 
     # -- Query methods --
 
-    def get_email(self, message_id: str) -> Optional[dict]:
+    def get_email(self, email_id: int) -> Optional[dict]:
         conn = self.connect()
-        row = conn.execute("SELECT * FROM emails WHERE message_id = ?", (message_id,)).fetchone()
+        row = conn.execute("SELECT * FROM emails WHERE email_id = ?", (email_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_email_by_message_id(self, message_id: str) -> Optional[dict]:
+        """Lookup by external message_id (may return first match if non-unique)."""
+        conn = self.connect()
+        row = conn.execute(
+            "SELECT * FROM emails WHERE message_id = ? LIMIT 1", (message_id,)
+        ).fetchone()
         return dict(row) if row else None
 
     def get_thread(self, thread_id: str) -> list[dict]:
@@ -343,18 +410,53 @@ class EmailStore:
         return [dict(r) for r in rows]
 
     def search_fts(self, query: str, limit: int = 60) -> list[dict]:
-        """Full-text search using FTS5 BM25 ranking."""
+        """Full-text search using FTS5 BM25 ranking.
+
+        Searches both email body/subject AND attachment extracted text,
+        then merges results by email_id.
+        """
         conn = self.connect()
-        rows = conn.execute(
+        # Search emails
+        email_rows = conn.execute(
             """SELECT emails.*, rank
                FROM emails_fts
-               JOIN emails ON emails.rowid = emails_fts.rowid
+               JOIN emails ON emails.email_id = emails_fts.rowid
                WHERE emails_fts MATCH ?
                ORDER BY rank
                LIMIT ?""",
             (query, limit),
         ).fetchall()
-        return [dict(r) for r in rows]
+
+        # Search attachments
+        attach_rows = conn.execute(
+            """SELECT a.email_id, a.filename, e.*, a.id as match_attachment_id
+               FROM attachments_fts afts
+               JOIN attachments a ON a.id = afts.rowid
+               JOIN emails e ON e.email_id = a.email_id
+               WHERE attachments_fts MATCH ?
+               LIMIT ?""",
+            (query, limit),
+        ).fetchall()
+
+        # Merge: email results first, then attachment matches (dedup by email_id)
+        seen_ids: set[int] = set()
+        results = []
+        for row in email_rows:
+            d = dict(row)
+            eid = d["email_id"]
+            if eid not in seen_ids:
+                seen_ids.add(eid)
+                d["_match_source"] = "email"
+                results.append(d)
+        for row in attach_rows:
+            d = dict(row)
+            eid = d["email_id"]
+            if eid not in seen_ids:
+                seen_ids.add(eid)
+                d["_match_source"] = "attachment"
+                results.append(d)
+
+        return results[:limit]
 
     def search_by_participant(self, name_or_email: str, limit: int = 100) -> list[dict]:
         """Find emails involving a participant."""
@@ -363,7 +465,7 @@ class EmailStore:
         rows = conn.execute(
             """SELECT DISTINCT e.*
                FROM emails e
-               JOIN email_participants ep ON e.message_id = ep.message_id
+               JOIN email_participants ep ON e.email_id = ep.email_id
                JOIN participants p ON ep.participant_id = p.id
                WHERE p.email LIKE ? OR LOWER(p.canonical_name) LIKE ?
                ORDER BY e.date_sent DESC
@@ -381,7 +483,7 @@ class EmailStore:
             rows = conn.execute(
                 """SELECT e.*, fts.rank
                    FROM emails_fts fts
-                   JOIN emails e ON e.rowid = fts.rowid
+                   JOIN emails e ON e.email_id = fts.rowid
                    WHERE fts MATCH ?
                      AND e.date_sent >= ? AND e.date_sent <= ?
                    ORDER BY fts.rank
@@ -406,7 +508,7 @@ class EmailStore:
         rows = conn.execute(
             """SELECT DISTINCT e.*, ent.entity_value, ent.context
                FROM entities ent
-               JOIN emails e ON ent.message_id = e.message_id
+               JOIN emails e ON ent.email_id = e.email_id
                WHERE ent.entity_type = ? AND ent.entity_value LIKE ?
                ORDER BY e.date_sent DESC
                LIMIT ?""",

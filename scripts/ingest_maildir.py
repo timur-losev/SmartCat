@@ -54,7 +54,7 @@ def ingest_single(store: EmailStore, file_path: Path) -> bool:
 
     try:
         parsed = parse_email_file(file_path)
-        is_new = store.insert_email(parsed)
+        email_id, is_new = store.insert_email(parsed)
 
         # Extract entities only for new emails (not duplicates)
         if is_new:
@@ -62,8 +62,8 @@ def ingest_single(store: EmailStore, file_path: Path) -> bool:
             conn = store.connect()
             for ent in entities:
                 conn.execute(
-                    "INSERT INTO entities (message_id, entity_type, entity_value, context) VALUES (?, ?, ?, ?)",
-                    (parsed.message_id, ent.entity_type, ent.entity_value, ent.context),
+                    "INSERT INTO entities (email_id, entity_type, entity_value, context) VALUES (?, ?, ?, ?)",
+                    (email_id, ent.entity_type, ent.entity_value, ent.context),
                 )
 
         store.mark_file_processed(str_path, "done")
