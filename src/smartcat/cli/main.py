@@ -155,7 +155,7 @@ def chat(db):
 
     while True:
         try:
-            query = console.input("[bold cyan]You:[/bold cyan] ").strip()
+            query = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
             break
 
