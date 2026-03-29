@@ -419,6 +419,18 @@ class EmailStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    @staticmethod
+    def _sanitize_fts_query(query: str) -> str:
+        """Sanitize query for FTS5 MATCH: remove special chars, wrap words in quotes."""
+        import re
+        # Remove FTS5 operators and special chars
+        clean = re.sub(r'[?!@#$%^&*()\[\]{}<>|\\/:;~`]', ' ', query)
+        # Split into words and wrap each in double quotes for exact matching
+        words = [w.strip() for w in clean.split() if w.strip()]
+        if not words:
+            return '""'
+        return " ".join(f'"{w}"' for w in words)
+
     def search_fts(self, query: str, limit: int = 60) -> list[dict]:
         """Full-text search using FTS5 BM25 ranking.
 
@@ -426,6 +438,7 @@ class EmailStore:
         then merges results by email_id.
         """
         conn = self.connect()
+        query = self._sanitize_fts_query(query)
         # Search emails
         email_rows = conn.execute(
             """SELECT emails.*, rank
@@ -490,15 +503,16 @@ class EmailStore:
         """Find emails within a date range, optionally with FTS query."""
         conn = self.connect()
         if query:
+            safe_query = self._sanitize_fts_query(query)
             rows = conn.execute(
-                """SELECT e.*, fts.rank
-                   FROM emails_fts fts
-                   JOIN emails e ON e.email_id = fts.rowid
-                   WHERE fts MATCH ?
+                """SELECT e.*, rank
+                   FROM emails_fts
+                   JOIN emails e ON e.email_id = emails_fts.rowid
+                   WHERE emails_fts MATCH ?
                      AND e.date_sent >= ? AND e.date_sent <= ?
-                   ORDER BY fts.rank
+                   ORDER BY rank
                    LIMIT ?""",
-                (query, start, end, limit),
+                (safe_query, start, end, limit),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -643,6 +657,10 @@ class EmailStore:
                FROM emails
                WHERE content_type = 'text/html'
                   OR body_html IS NOT NULL
+                  OR body_text LIKE '%<html%'
+                  OR body_text LIKE '%<HTML%'
+                  OR body_text LIKE '%<table%'
+                  OR body_text LIKE '%<TABLE%'
                LIMIT ?""",
             (limit,),
         ).fetchall()
