@@ -17,7 +17,8 @@ from smartcat.config import LLM_SERVER_URL, AGENT_MAX_STEPS
 
 log = structlog.get_logger()
 
-SYSTEM_PROMPT = """You are SmartCat, an AI assistant specialized in searching and analyzing email correspondence.
+SYSTEM_PROMPT = """/no_think
+You are SmartCat, an AI assistant specialized in searching and analyzing email correspondence.
 You have access to the following tools to find information:
 
 {tool_descriptions}
@@ -87,11 +88,18 @@ class ReactAgent:
             resp = requests.post(
                 f"{self.llm_url}/v1/chat/completions",
                 json=payload,
-                timeout=120,
+                timeout=300,
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            msg = data["choices"][0]["message"]
+            # Qwen3 with thinking mode: content may be empty, text in reasoning_content
+            content = msg.get("content") or ""
+            reasoning = msg.get("reasoning_content") or ""
+            if not content and reasoning:
+                # Extract useful text from thinking block
+                content = reasoning
+            return content
         except requests.ConnectionError:
             return "Error: Cannot connect to LLM server. Is llama-server running?"
         except Exception as e:
