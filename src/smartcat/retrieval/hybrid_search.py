@@ -74,7 +74,8 @@ class HybridSearcher:
         """
         ranked_lists = []
 
-        # Channel 1: Vector search
+        # Channel 1: Vector search (document chunks + QA pairs)
+        qa_results_raw = []
         try:
             query_vec = self.embedder.embed_query(query)
             vector_results = self.qdrant.search(
@@ -82,12 +83,18 @@ class HybridSearcher:
                 limit=self.top_k,
                 filters=vector_filters,
             )
-            vector_ranked = [
-                (r["payload"].get("email_id", r["id"]), r["score"])
-                for r in vector_results
-            ]
-            ranked_lists.append(vector_ranked)
-            log.debug("search.vector", results=len(vector_ranked))
+            # Separate document chunks from QA pairs
+            doc_ranked = []
+            for r in vector_results:
+                payload = r.get("payload", {})
+                if payload.get("chunk_type") == "qa":
+                    qa_results_raw.append(r)
+                else:
+                    doc_ranked.append(
+                        (payload.get("email_id", r["id"]), r["score"])
+                    )
+            ranked_lists.append(doc_ranked)
+            log.debug("search.vector", docs=len(doc_ranked), qa=len(qa_results_raw))
         except Exception as e:
             log.warning("search.vector.failed", error=str(e))
 
@@ -127,5 +134,27 @@ class HybridSearcher:
                     "has_attachments": email.get("has_attachments", 0),
                 })
 
-        log.info("search.hybrid", query=query[:50], results=len(results))
-        return results
+        # Prepend QA matches (pre-computed answers get priority)
+        qa_results = []
+        for r in qa_results_raw[:5]:  # max 5 QA matches
+            payload = r.get("payload", {})
+            qa_results.append({
+                "email_id": payload.get("email_id", 0),
+                "message_id": "",
+                "rrf_score": r["score"] + 1.0,  # boost QA above documents
+                "subject": payload.get("subject", ""),
+                "from_address": payload.get("from_address", ""),
+                "from_name": "",
+                "date_sent": payload.get("date_sent", ""),
+                "body_text": f"Q: {payload.get('question', '')}\nA: {payload.get('answer', '')}",
+                "thread_id": payload.get("thread_id", ""),
+                "has_attachments": 0,
+                "_source": "qa",
+                "_qa_question": payload.get("question", ""),
+                "_qa_answer": payload.get("answer", ""),
+            })
+
+        # QA results first, then document results
+        all_results = qa_results + results
+        log.info("search.hybrid", query=query[:50], docs=len(results), qa=len(qa_results))
+        return all_results

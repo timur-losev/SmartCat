@@ -115,6 +115,26 @@ CREATE TABLE IF NOT EXISTS chunks (
     char_offset_end INTEGER
 );
 
+-- QA pairs extracted from email threads by LLM
+CREATE TABLE IF NOT EXISTS qa_pairs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    thread_id TEXT NOT NULL,
+    email_id INTEGER REFERENCES emails(email_id),  -- source email for answer
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    source_context TEXT,  -- snippet that supports the answer
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_qa_thread ON qa_pairs(thread_id);
+
+-- Track which threads have been processed for QA extraction
+CREATE TABLE IF NOT EXISTS qa_progress (
+    thread_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'done',  -- 'done', 'error', 'skip'
+    qa_count INTEGER NOT NULL DEFAULT 0,
+    processed_at TEXT NOT NULL
+);
+
 -- Ingestion tracking
 CREATE TABLE IF NOT EXISTS processed_files (
     file_path TEXT PRIMARY KEY,
@@ -716,6 +736,89 @@ class EmailStore:
             (email_id, filename, content_type, file_hash, data),
         )
         return cursor.lastrowid
+
+    # -- QA pair methods --
+
+    def get_threads_for_qa(self, min_emails: int = 2, limit: int = 1000) -> list[dict]:
+        """Get threads that haven't been QA-processed yet."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT thread_id, COUNT(*) as email_count
+               FROM emails
+               WHERE thread_id IS NOT NULL
+                 AND thread_id NOT IN (SELECT thread_id FROM qa_progress)
+                 AND subject NOT LIKE '%Schedule Crawler%'
+                 AND subject NOT LIKE '%Synchronization Log%'
+                 AND subject NOT LIKE '%WARNING:%mailbox%'
+               GROUP BY thread_id
+               HAVING email_count >= ?
+               ORDER BY email_count DESC
+               LIMIT ?""",
+            (min_emails, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_thread_emails_for_qa(self, thread_id: str) -> list[dict]:
+        """Get emails in a thread formatted for QA extraction."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT email_id, from_address, from_name, subject, date_sent,
+                      SUBSTR(body_text, 1, 500) as body_preview
+               FROM emails
+               WHERE thread_id = ?
+               ORDER BY date_sent
+               LIMIT 10""",
+            (thread_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def insert_qa_pairs(self, pairs: list[dict]):
+        """Batch insert QA pairs."""
+        if not pairs:
+            return
+        conn = self.connect()
+        conn.executemany(
+            """INSERT INTO qa_pairs (thread_id, email_id, question, answer, source_context, created_at)
+               VALUES (:thread_id, :email_id, :question, :answer, :source_context, :created_at)""",
+            pairs,
+        )
+
+    def mark_thread_qa_done(self, thread_id: str, qa_count: int, status: str = "done"):
+        """Mark a thread as QA-processed."""
+        conn = self.connect()
+        conn.execute(
+            "INSERT OR REPLACE INTO qa_progress (thread_id, status, qa_count, processed_at) VALUES (?, ?, ?, ?)",
+            (thread_id, status, qa_count, datetime.now().isoformat()),
+        )
+
+    def get_qa_stats(self) -> dict:
+        """Get QA extraction statistics."""
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                """SELECT
+                    (SELECT COUNT(*) FROM qa_pairs) as total_pairs,
+                    (SELECT COUNT(*) FROM qa_progress WHERE status='done') as threads_done,
+                    (SELECT COUNT(*) FROM qa_progress WHERE status='error') as threads_error,
+                    (SELECT COUNT(*) FROM qa_progress WHERE status='skip') as threads_skip"""
+            ).fetchone()
+            return dict(row) if row else {}
+        except Exception:
+            return {}
+
+    def get_qa_pairs_for_embedding(self, limit: int = 10000, offset: int = 0) -> list[dict]:
+        """Get QA pairs for embedding into Qdrant."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT qa.id, qa.thread_id, qa.email_id, qa.question, qa.answer,
+                      e.from_address, e.date_sent, e.subject
+               FROM qa_pairs qa
+               LEFT JOIN emails e ON qa.email_id = e.email_id
+               ORDER BY qa.id
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def get_chunks_for_embedding(self, limit: int = 10000, offset: int = 0) -> list[dict]:
         """Get chunks that need embedding (for batch embedding pipeline)."""
