@@ -127,12 +127,17 @@ class AgentTools:
                 f"   Thread: {r.get('thread_id', 'N/A')}\n"
                 f"   Preview: {body_preview}\n"
             )
-            # Append QA context if available — agent should verify via get_email
+            # Auto-enrich QA matches with full email citation
             if r.get("_qa_question"):
+                email_detail = self.store.get_email(r["email_id"])
+                msg_id = email_detail.get("message_id", "N/A") if email_detail else "N/A"
+                date = email_detail.get("date_sent", "N/A")[:10] if email_detail else "N/A"
+                sender = (email_detail.get("from_name") or email_detail.get("from_address", "")) if email_detail else ""
                 entry += (
                     f"   [QA Match] Q: {r['_qa_question']}\n"
                     f"   [QA Match] A: {r.get('_qa_answer', '')}\n"
-                    f"   (Use get_email with ID {r['email_id']} to verify and cite)\n"
+                    f"   [Source] Message-ID: {msg_id} | Date: {date} | From: {sender}\n"
+                    f"   ** Cite this email in your answer **\n"
                 )
             lines.append(entry)
         return "\n".join(lines)
