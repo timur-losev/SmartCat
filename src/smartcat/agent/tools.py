@@ -118,7 +118,7 @@ class AgentTools:
         for i, r in enumerate(results, 1):
             score = r.get("rerank_score", r.get("rrf_score", 0))
             body_preview = (r.get("body_text", "")[:150] + "...") if r.get("body_text") else ""
-            lines.append(
+            entry = (
                 f"{i}. [{r.get('date_sent', 'N/A')[:10]}] "
                 f"From: {r.get('from_name') or r.get('from_address', 'Unknown')} | "
                 f"Subject: {r.get('subject', '(no subject)')} | "
@@ -127,6 +127,14 @@ class AgentTools:
                 f"   Thread: {r.get('thread_id', 'N/A')}\n"
                 f"   Preview: {body_preview}\n"
             )
+            # Append QA context if available — agent should verify via get_email
+            if r.get("_qa_question"):
+                entry += (
+                    f"   [QA Match] Q: {r['_qa_question']}\n"
+                    f"   [QA Match] A: {r.get('_qa_answer', '')}\n"
+                    f"   (Use get_email with ID {r['email_id']} to verify and cite)\n"
+                )
+            lines.append(entry)
         return "\n".join(lines)
 
     def _tool_search_by_participant(self, name_or_email: str, limit: int = 20) -> str:
