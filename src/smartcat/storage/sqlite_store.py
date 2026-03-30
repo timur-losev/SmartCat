@@ -591,6 +591,35 @@ class EmailStore:
         ).fetchone()
         return dict(row) if row else {}
 
+    def get_top_senders(self, limit: int = 20) -> list[dict]:
+        """Get most frequent email senders."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT from_address, from_name, COUNT(*) as email_count
+               FROM emails
+               WHERE from_address != ''
+               GROUP BY from_address
+               ORDER BY email_count DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_top_recipients(self, limit: int = 20) -> list[dict]:
+        """Get most frequent email recipients."""
+        conn = self.connect()
+        rows = conn.execute(
+            """SELECT p.email, p.canonical_name, COUNT(*) as email_count
+               FROM email_participants ep
+               JOIN participants p ON ep.participant_id = p.id
+               WHERE ep.role = 'to'
+               GROUP BY p.id
+               ORDER BY email_count DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def get_participant_count(self) -> int:
         conn = self.connect()
         row = conn.execute("SELECT COUNT(*) as cnt FROM participants").fetchone()

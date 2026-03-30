@@ -92,6 +92,14 @@ class AgentTools:
                 },
                 "required": [],
             },
+            {
+                "name": "get_top_senders",
+                "description": "Get the most frequent email senders ranked by email count. Use for questions about who sent the most emails.",
+                "parameters": {
+                    "limit": {"type": "integer", "description": "Number of top senders (default 20)", "default": 20},
+                },
+                "required": [],
+            },
         ]
 
     def execute(self, tool_name: str, args: dict[str, Any]) -> str:
@@ -267,3 +275,17 @@ class AgentTools:
             f"  With attachments: {stats.get('with_attachments', 0):,}\n"
             f"  Average length: {stats.get('avg_length', 0):.0f} chars\n"
         )
+
+    def _tool_get_top_senders(self, limit: int = 20) -> str:
+        results = self.store.get_top_senders(limit=limit)
+        if not results:
+            return "No sender data available."
+
+        lines = [f"Top {len(results)} email senders:\n"]
+        for i, r in enumerate(results, 1):
+            name = r.get("from_name") or ""
+            addr = r.get("from_address", "")
+            count = r.get("email_count", 0)
+            display = f"{name} <{addr}>" if name else addr
+            lines.append(f"{i:>3}. {display} — {count:,} emails")
+        return "\n".join(lines)
