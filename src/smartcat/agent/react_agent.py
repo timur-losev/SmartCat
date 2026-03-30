@@ -67,6 +67,7 @@ class ReactAgent:
         self.max_steps = max_steps
         self.temperature = temperature
         self.max_tokens = max_tokens
+        self._history: list[dict] = []  # conversation history across turns
 
     def _build_system_prompt(self) -> str:
         tool_descs = self.tools.get_tool_descriptions()
@@ -128,10 +129,12 @@ class ReactAgent:
         Returns:
             Final answer string.
         """
-        messages = [
-            {"role": "system", "content": self._build_system_prompt()},
-            {"role": "user", "content": user_query},
-        ]
+        # Build messages with conversation history for multi-turn context
+        messages = [{"role": "system", "content": self._build_system_prompt()}]
+        # Add previous turns (keep last 10 to avoid context overflow)
+        for h in self._history[-10:]:
+            messages.append(h)
+        messages.append({"role": "user", "content": user_query})
 
         full_response = []
 
@@ -171,9 +174,13 @@ class ReactAgent:
         last = full_response[-1] if full_response else ""
         # Try to find explicit "Answer:" section
         answer_match = re.search(r"Answer:\s*(.*)", last, re.DOTALL | re.IGNORECASE)
-        if answer_match:
-            return answer_match.group(1).strip()
-        return last
+        final = answer_match.group(1).strip() if answer_match else last
+
+        # Save to conversation history for multi-turn context
+        self._history.append({"role": "user", "content": user_query})
+        self._history.append({"role": "assistant", "content": final})
+
+        return final
 
     def chat_no_llm(self, user_query: str) -> str:
         """Simplified search without LLM — direct tool execution for testing.

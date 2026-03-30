@@ -2,12 +2,12 @@
 
 ## Context
 
-Текущий пайплайн парсит email body как plain text, но:
-1. **HTML body** — когда email только HTML (`content_type=text/html`), `body_text` содержит сырой HTML с тегами. Chunker получает грязный текст.
-2. **MIME-аттачи** — parser детектит наличие аттачей (`has_attachments=True`), но **не извлекает их байты**. Реальные PDF/DOC в Enron maildir игнорируются.
-3. **`<< File: ... >>` ссылки** — сохраняются как `referenced_files`, файлов нет — чанкить нечего.
+The current pipeline parses email body as plain text, but:
+1. **HTML body** — when email is HTML-only (`content_type=text/html`), `body_text` contains raw HTML with tags. The chunker receives dirty text.
+2. **MIME attachments** — the parser detects the presence of attachments (`has_attachments=True`), but **does not extract their bytes**. Real PDF/DOC files in Enron maildir are ignored.
+3. **`<< File: ... >>` references** — saved as `referenced_files`, the files are missing — nothing to chunk.
 
-Docling решает обе проблемы: конвертит HTML → clean markdown и PDF/DOC → текст.
+Docling solves both problems: converts HTML → clean markdown and PDF/DOC → text.
 
 ## Pipeline After Changes
 

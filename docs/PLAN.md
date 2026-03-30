@@ -1,27 +1,27 @@
-# SmartCat — RAG-система для поиска по email-переписке
+# SmartCat — RAG System for Email Search
 
 ## Context
 
-Нужно построить RAG-систему для полнотекстового AI-поиска по корпусу email-переписки (тестовый: Enron 517K писем, продакшен: 30GB+ HTML с PDF/JPG вложениями). Система должна извлекать участников, темы, даты, суммы, документы, цепочки переписки и давать AI-ответы с рассуждением.
+The goal is to build a RAG system for full-text AI search over an email corpus (test: Enron 517K emails, production: 30GB+ HTML with PDF/JPG attachments). The system should extract participants, topics, dates, amounts, documents, conversation threads and provide AI answers with reasoning.
 
 **Hardware**: RTX 3090/4090 24GB VRAM, local inference.
-**UI**: CLI-first, API позже.
+**UI**: CLI-first, API later.
 
 ---
 
-## 1. Выбор датасета: `maildir/` (основной)
+## 1. Dataset Selection: `maildir/` (primary)
 
-**Берём `maildir/`**, а не `emails.csv`:
-- **Продакшен-совместимость** — продакшен будет в виде файлов, а не CSV. Pipeline на файлах переносится напрямую
-- **Параллельная обработка** — каждый файл независим, можно чекпоинтить прогресс по файлам
-- **Вложения** — в CSV вложения отсутствуют, maildir-архитектура естественно расширяется на аттачменты
-- **`emails.csv`** используем только для валидации (сверка количества, быстрое прототипирование парсинга)
+**Using `maildir/`**, not `emails.csv`:
+- **Production compatibility** — production will be file-based, not CSV. A file-based pipeline transfers directly
+- **Parallel processing** — each file is independent, progress can be checkpointed per file
+- **Attachments** — CSV lacks attachments, maildir architecture naturally extends to attachments
+- **`emails.csv`** is used only for validation (count verification, quick parsing prototyping)
 
 ---
 
-## 2. Архитектура Data Pipeline
+## 2. Data Pipeline Architecture
 
-### 2.1 Парсинг email (Python `email` stdlib)
+### 2.1 Email Parsing (Python `email` stdlib)
 ```
 maildir/{user}/{folder}/{id}_ → Structured dict:
   message_id, date, from/to/cc/bcc (addr+name),
@@ -29,62 +29,62 @@ maildir/{user}/{folder}/{id}_ → Structured dict:
   source_path, has_forwarded_content, has_reply_content
 ```
 
-**Error handling**: таблица `processing_errors(file_path, error_type, error_msg, timestamp)` в SQLite. Skip-and-log для битых файлов, нечитаемых кодировок, пустых файлов. Resumable ingestion через таблицу `processed_files(file_path, status, processed_at)`.
+**Error handling**: `processing_errors(file_path, error_type, error_msg, timestamp)` table in SQLite. Skip-and-log for corrupted files, unreadable encodings, empty files. Resumable ingestion via `processed_files(file_path, status, processed_at)` table.
 
-### 2.2 Реконструкция цепочек (threads)
-**Приоритетный путь** (для продакшена, когда заголовки есть):
-1. `In-Reply-To` / `References` headers → прямое построение дерева
+### 2.2 Thread Reconstruction
+**Primary path** (for production, when headers are available):
+1. `In-Reply-To` / `References` headers → direct tree construction
 
-**Fallback** (для Enron, где этих заголовков нет):
-2. Нормализация subject (strip RE:/FW:/Fwd:)
-3. Группировка по canonical subject + пересечение участников
-4. Парсинг `"Forwarded by"` и `"-----Original Message-----"` из тела
-5. Результат: `thread_id` + `parent_message_id` на каждом письме
+**Fallback** (for Enron, where these headers are missing):
+2. Subject normalization (strip RE:/FW:/Fwd:)
+3. Grouping by canonical subject + participant overlap
+4. Parsing `"Forwarded by"` and `"-----Original Message-----"` from body
+5. Result: `thread_id` + `parent_message_id` on each email
 
-### 2.3 Извлечение метаданных
-- **Участники**: канонические имена (X-From/X-To → единая таблица персон)
-- **Даты**: `dateutil.parser` из заголовков + regex из тела
-- **Суммы**: regex `\$[\d,]+\.?\d*`, "million", "MMBtu" и т.д.
-- **Ссылки на документы**: `*.xls`, `*.doc`, `*.pdf`, номера контрактов
-- **Без spaCy** — для email достаточно regex + structured headers. NER не нужен, т.к. участники уже в From/To.
+### 2.3 Metadata Extraction
+- **Participants**: canonical names (X-From/X-To → unified person table)
+- **Dates**: `dateutil.parser` from headers + regex from body
+- **Amounts**: regex `\$[\d,]+\.?\d*`, "million", "MMBtu", etc.
+- **Document references**: `*.xls`, `*.doc`, `*.pdf`, contract numbers
+- **No spaCy** — for email, regex + structured headers are sufficient. NER is not needed since participants are already in From/To.
 
-### 2.4 Docling (для продакшена)
+### 2.4 Docling (for production)
 ```
-MIME attachment → определение типа:
+MIME attachment → type detection:
   PDF      → Docling PDF pipeline (layout + OCR)
   image/*  → Docling OCR
   HTML     → BeautifulSoup + readability-lxml
   .doc/xls → Docling / python-docx / openpyxl
-→ Текст привязывается к parent email по message_id + attachment_id
+→ Text is linked to parent email via message_id + attachment_id
 ```
 
-**Большие вложения**: PDF 100+ стр → чанки с `attachment_id + page_range` для точного цитирования.
-**Дедупликация вложений**: hash файла → если тот же attachment forwarded в другом email, ссылка вместо повторной обработки.
+**Large attachments**: PDF 100+ pages → chunks with `attachment_id + page_range` for precise citation.
+**Attachment deduplication**: file hash → if the same attachment is forwarded in another email, link instead of reprocessing.
 
-### 2.5 HTML-обработка (для продакшена)
-- Извлечение highlighted text (`<mark>`, `<b>`, `<strong>`, inline `background-color`)
-- Таблицы → markdown
-- Удаление boilerplate (подписи, disclaimers, tracking pixels)
-- Сохранение quoted reply секций
+### 2.5 HTML Processing (for production)
+- Extracting highlighted text (`<mark>`, `<b>`, `<strong>`, inline `background-color`)
+- Tables → markdown
+- Removing boilerplate (signatures, disclaimers, tracking pixels)
+- Preserving quoted reply sections
 
-### 2.6 Дедупликация email
-- Одно письмо может быть в `sent_items/` отправителя и `inbox/` получателя
-- **Стратегия**: хранить все экземпляры в SQLite (разный folder = разный контекст), но **один набор векторов в Qdrant** per unique Message-ID
-- Связь: `email_instances(message_id, source_path, x_folder, folder_owner)` — N:1 к основной записи email
+### 2.6 Email Deduplication
+- The same email can be in sender's `sent_items/` and recipient's `inbox/`
+- **Strategy**: store all instances in SQLite (different folder = different context), but **one set of vectors in Qdrant** per unique Message-ID
+- Relationship: `email_instances(message_id, source_path, x_folder, folder_owner)` — N:1 to the main email record
 
 ---
 
 ## 3. Storage & Indexing
 
-### 3.1 Векторная БД: **Qdrant** (Docker, single-node)
-- Rust, payload filtering (фильтрация по дате/участнику на уровне ANN), disk-backed
-- ChromaDB не тянет >1M векторов, Milvus избыточен для single-machine
-- 517K unique emails × ~3 чанка = ~1.5M векторов → ~4.5GB (RAM)
-- Продакшен ~10M векторов → ~30GB (disk-backed mode, 64GB+ RAM)
+### 3.1 Vector DB: **Qdrant** (Docker, single-node)
+- Rust, payload filtering (filtering by date/participant at ANN level), disk-backed
+- ChromaDB cannot handle >1M vectors, Milvus is overkill for single-machine
+- 517K unique emails x ~3 chunks = ~1.5M vectors → ~4.5GB (RAM)
+- Production ~10M vectors → ~30GB (disk-backed mode, 64GB+ RAM)
 
-### 3.2 Метаданные: **SQLite + FTS5**
-- FTS5 даёт BM25 keyword search из коробки
-- Zero-ops, один файл
+### 3.2 Metadata: **SQLite + FTS5**
+- FTS5 provides BM25 keyword search out of the box
+- Zero-ops, single file
 
 ```sql
 emails (message_id PK, date_sent, subject, body_text, from_address,
@@ -102,139 +102,139 @@ processing_errors (file_path, error_type, error_msg, timestamp)
 emails_fts USING fts5(subject, body_text)
 ```
 
-### 3.3 Chunking: иерархический, email-aware
-| Уровень | Содержимое | Размер |
-|---------|-----------|--------|
-| L1 Summary | Subject + From/To/Date + первые 200 chars | 100-300 tokens |
-| L2 Body | Параграфы тела, merge мелких до ~400 tokens | 300-512 tokens |
-| L3 Quoted | Каждое вложенное FW/RE как отдельный чанк | варьируется |
-| L4 Attachment | Docling-текст вложений (с page_range) | 300-500 tokens |
+### 3.3 Chunking: hierarchical, email-aware
+| Level | Content | Size |
+|-------|---------|------|
+| L1 Summary | Subject + From/To/Date + first 200 chars | 100-300 tokens |
+| L2 Body | Body paragraphs, merge small ones up to ~400 tokens | 300-512 tokens |
+| L3 Quoted | Each nested FW/RE as a separate chunk | varies |
+| L4 Attachment | Docling-extracted text from attachments (with page_range) | 300-500 tokens |
 
-Каждый чанк несёт payload в Qdrant: `message_id, chunk_type, date_sent, from_address, to_addresses, thread_id, has_monetary, has_attachment`
+Each chunk carries a payload in Qdrant: `message_id, chunk_type, date_sent, from_address, to_addresses, thread_id, has_monetary, has_attachment`
 
-### 3.4 Embedding: выбрать из 2-3 моделей
-Кандидаты (все локальные, <1GB):
+### 3.4 Embedding: choose from 2-3 models
+Candidates (all local, <1GB):
 - `nomic-embed-text-v1.5` — 768d, 137M, Matryoshka, 8K context
-- `bge-large-en-v1.5` — 1024d, 335M, сильный на retrieval
+- `bge-large-en-v1.5` — 1024d, 335M, strong on retrieval
 - `e5-large-v2` — 1024d, 335M, instruction-tuned
 
-**Шаг**: перед batch embedding всего корпуса — **сравнить на 20 тестовых запросах** (Recall@10). Выбрать лучшую.
+**Step**: before batch embedding the entire corpus — **compare on 20 test queries** (Recall@10). Choose the best one.
 
-Через `sentence-transformers` (не Ollama — быстрее батчами). ~1000 chunks/sec GPU.
+Via `sentence-transformers` (not Ollama — faster in batches). ~1000 chunks/sec GPU.
 
 ---
 
 ## 4. RAG Architecture
 
-### 4.1 Hybrid Search (3 канала → RRF fusion)
+### 4.1 Hybrid Search (3 channels → RRF fusion)
 ```
-Query → [параллельно]
+Query → [in parallel]
   ├─ Vector Search (Qdrant, top-60, metadata pre-filters)
   ├─ Keyword Search (SQLite FTS5 BM25, top-60)
-  └─ Structured Filters (агент формирует через tools, не NLU-парсинг)
+  └─ Structured Filters (agent forms via tools, not NLU parsing)
       ↓
   RRF fusion (k=60) → top-30
 ```
 
-**Structured Query**: НЕ пытаемся парсить NL-запрос регексами. Вместо этого агент сам решает, когда вызвать `search_by_participant()` или `search_by_date_range()`. Это надёжнее и расширяемее.
+**Structured Query**: We do NOT try to parse NL queries with regex. Instead, the agent decides when to call `search_by_participant()` or `search_by_date_range()`. This is more reliable and extensible.
 
 ### 4.2 Re-ranking
-- Cross-encoder `bge-reranker-v2-m3` на top-30 → top-10
-- **Работает на CPU** (~300ms на 30 пар) — освобождает GPU для LLM
-- Metadata boost: полнота треда, свежесть, совпадение участников
+- Cross-encoder `bge-reranker-v2-m3` on top-30 → top-10
+- **Runs on CPU** (~300ms for 30 pairs) — frees GPU for LLM
+- Metadata boost: thread completeness, recency, participant match
 
 ### 4.3 VRAM Lifecycle (24GB constraint)
 ```
 Ingestion mode:  embedding model (GPU, ~0.5GB) — batch processing
-Serving mode:    LLM (GPU, ~20GB) + reranker (CPU) + embedding (CPU, для query)
+Serving mode:    LLM (GPU, ~20GB) + reranker (CPU) + embedding (CPU, for query)
 ```
-- При ingestion LLM не нужен → вся VRAM для embedding
-- При serving embedding одного query на CPU — ~50ms, приемлемо
-- Reranker всегда на CPU
-- **Не загружать все модели одновременно на GPU**
+- During ingestion LLM is not needed → all VRAM for embedding
+- During serving, embedding a single query on CPU — ~50ms, acceptable
+- Reranker always on CPU
+- **Do not load all models simultaneously on GPU**
 
 ### 4.4 Context Assembly
-- Дедупликация по message_id
-- Для каждого email: full record из SQLite + thread context
-- До 24K tokens контекста (Qwen3 32B, 32K context window)
+- Deduplication by message_id
+- For each email: full record from SQLite + thread context
+- Up to 24K tokens of context (Qwen3 32B, 32K context window)
 
 ### 4.5 AI Agent (ReAct loop)
-Инструменты агента:
-- `search_emails(query, filters)` — гибридный поиск (vector + BM25)
-- `search_by_participant(name_or_email)` — structured поиск по участнику
-- `search_by_date_range(start, end, query?)` — фильтр по дате
-- `search_entities(type, value)` — поиск сумм, дат, документов
-- `get_email(message_id)` — полное письмо
-- `get_thread(thread_id)` — вся цепочка в хронологическом порядке
-- `get_email_stats(filters)` — агрегатная статистика
+Agent tools:
+- `search_emails(query, filters)` — hybrid search (vector + BM25)
+- `search_by_participant(name_or_email)` — structured search by participant
+- `search_by_date_range(start, end, query?)` — date range filter
+- `search_entities(type, value)` — search for amounts, dates, documents
+- `get_email(message_id)` — full email
+- `get_thread(thread_id)` — entire thread in chronological order
+- `get_email_stats(filters)` — aggregate statistics
 
-Макс 5 шагов рассуждения → финальный ответ с цитатами (message_id + дата + участники).
+Max 5 reasoning steps → final answer with citations (message_id + date + participants).
 
 ---
 
 ## 5. Tech Stack
 
-| Компонент | Выбор |
-|-----------|-------|
-| Язык | Python 3.11+ |
-| Парсинг email | `email` stdlib |
+| Component | Choice |
+|-----------|--------|
+| Language | Python 3.11+ |
+| Email parsing | `email` stdlib |
 | HTML | `readability-lxml` + `beautifulsoup4` |
-| OCR/Документы | Docling |
-| Метаданные | `dateutil`, regex (без spaCy) |
-| Embedding | winner из nomic/bge/e5 (sentence-transformers) |
+| OCR/Documents | Docling |
+| Metadata | `dateutil`, regex (no spaCy) |
+| Embedding | winner from nomic/bge/e5 (sentence-transformers) |
 | Vector DB | Qdrant (Docker) |
 | Metadata DB | SQLite + FTS5 |
 | Re-ranker | `bge-reranker-v2-m3` (CPU) |
 | LLM | Qwen3 32B Q4_K_M GGUF (~20GB VRAM) |
 | LLM serving | `llama.cpp` (llama-server) |
-| Agent | Custom ReAct loop (~100 строк, без LangChain) |
-| UI (dev) | CLI (`rich` + `click`), API позже |
-| Logging | `structlog` + `tqdm` для pipeline progress |
-| Параллелизм | `multiprocessing` |
+| Agent | Custom ReAct loop (~100 lines, no LangChain) |
+| UI (dev) | CLI (`rich` + `click`), API later |
+| Logging | `structlog` + `tqdm` for pipeline progress |
+| Parallelism | `multiprocessing` |
 
 ---
 
-## 6. Порядок реализации
+## 6. Implementation Order
 
-### Phase 1: Фундамент
-1. **Структура проекта + venv** — `python -m venv .venv`, pyproject.toml, `pip install -e ".[dev]"`, src/smartcat/...
-2. **MIME-парсер** — `parsing/mime_parser.py` (Python `email` module), error handling, тест на 100 файлах
-3. **SQLite storage** — полная схема (включая email_instances, chunks, processing_errors), CRUD, FTS5
+### Phase 1: Foundation
+1. **Project structure + venv** — `python -m venv .venv`, pyproject.toml, `pip install -e ".[dev]"`, src/smartcat/...
+2. **MIME parser** — `parsing/mime_parser.py` (Python `email` module), error handling, test on 100 files
+3. **SQLite storage** — full schema (including email_instances, chunks, processing_errors), CRUD, FTS5
 
-### Phase 2: Извлечение и Threading
-4. **Metadata extraction** — участники (canonical names), даты, суммы, документы
-5. **Thread reconstruction** — In-Reply-To первый, subject fallback второй
-6. **Batch ingestion** — обработка всех 517K файлов в SQLite, resumable, progress bar (~15-30 мин)
+### Phase 2: Extraction and Threading
+4. **Metadata extraction** — participants (canonical names), dates, amounts, documents
+5. **Thread reconstruction** — In-Reply-To first, subject fallback second
+6. **Batch ingestion** — process all 517K files into SQLite, resumable, progress bar (~15-30 min)
 
-### Phase 3: Embedding и Indexing
-7. **Chunking** — иерархический email-aware chunker, сохранение в SQLite
-8. **Embedding model eval** — сравнить 3 модели на 20 запросах, выбрать лучшую
-9. **Batch embedding + Qdrant** — batch embed, Docker Qdrant, payload indexes, upsert (~25 мин GPU)
+### Phase 3: Embedding and Indexing
+7. **Chunking** — hierarchical email-aware chunker, saving to SQLite
+8. **Embedding model eval** — compare 3 models on 20 queries, choose the best
+9. **Batch embedding + Qdrant** — batch embed, Docker Qdrant, payload indexes, upsert (~25 min GPU)
 
 ### Phase 4: Retrieval
 10. **Hybrid search** — vector + FTS5 → RRF fusion
-11. **Re-ranker** — cross-encoder на CPU + metadata boost
-12. **CLI search** — `smartcat search "query"` для тестирования retrieval
+11. **Re-ranker** — cross-encoder on CPU + metadata boost
+12. **CLI search** — `smartcat search "query"` for testing retrieval
 
-### Phase 5: Agent и LLM
-13. **LLM setup** — Qwen3 32B GGUF + llama-server (VRAM lifecycle: выгрузить embedding, загрузить LLM)
-14. **Agent tools** — реализация 7 инструментов
-15. **ReAct loop + CLI chat** — `smartcat chat` с streaming ответами
+### Phase 5: Agent and LLM
+13. **LLM setup** — Qwen3 32B GGUF + llama-server (VRAM lifecycle: unload embedding, load LLM)
+14. **Agent tools** — implementation of 7 tools
+15. **ReAct loop + CLI chat** — `smartcat chat` with streaming responses
 
 ### Phase 6: Production Readiness
-16. **Docling integration** — attachment pipeline для продакшен-данных
+16. **Docling integration** — attachment pipeline for production data
 17. **Evaluation** — 50 test queries, precision/recall, prompt tuning
-18. **FastAPI** — REST endpoints когда CLI стабилен
+18. **FastAPI** — REST endpoints when CLI is stable
 
 ---
 
-## Ключевые файлы
+## Key Files
 
-- `G:/Proj/SmartCat/maildir/` — основной источник (517K файлов, 150 пользователей)
-- `G:/Proj/SmartCat/maildir/allen-p/` — интеграционный тест (3034 файла)
-- `G:/Proj/SmartCat/emails.csv` — валидация и прототипирование
+- `G:/Proj/SmartCat/maildir/` — primary source (517K files, 150 users)
+- `G:/Proj/SmartCat/maildir/allen-p/` — integration test (3034 files)
+- `G:/Proj/SmartCat/emails.csv` — validation and prototyping
 
-## Структура проекта (целевая)
+## Project Structure (target)
 ```
 smartcat/
   pyproject.toml
@@ -266,11 +266,11 @@ smartcat/
   tests/
 ```
 
-## Верификация
-- Unit-тесты парсера на 100 email из разных пользователей
-- Сверка количества с emails.csv
-- Embedding model comparison на 20 запросах (Recall@10)
-- 20 ручных запросов для hybrid search quality
-- 50 test queries с ожидаемыми ответами для end-to-end evaluation
-- Проверка thread reconstruction на известных цепочках (allen-p)
-- VRAM monitoring при смене режимов ingestion/serving
+## Verification
+- Unit tests for the parser on 100 emails from different users
+- Count verification against emails.csv
+- Embedding model comparison on 20 queries (Recall@10)
+- 20 manual queries for hybrid search quality
+- 50 test queries with expected answers for end-to-end evaluation
+- Thread reconstruction verification on known chains (allen-p)
+- VRAM monitoring during ingestion/serving mode switching

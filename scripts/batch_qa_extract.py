@@ -41,7 +41,10 @@ Rules:
 - Questions should be natural, as a user would ask
 - Answers should be concise and factual (1-2 sentences max)
 - Include names, dates, amounts, decisions when available
-- Skip generic greetings and pleasantries
+- Focus ONLY on Enron business content: deals, people, meetings, decisions, projects
+- SKIP forwarded news articles, CNN/Reuters headlines, spam, newsletters, mailing lists
+- SKIP generic greetings, pleasantries, and auto-generated messages
+- If the thread contains only news forwards or spam, output empty array: []
 - Output ONLY valid JSON array, nothing else
 
 Email thread:
@@ -57,12 +60,14 @@ Output format (JSON array only, no markdown):
 
 def format_thread_for_prompt(emails: list[dict]) -> str:
     """Format thread emails into a compact text for the LLM prompt."""
+    # Limit to 7 emails max to keep prompt manageable
+    emails = emails[:7]
     parts = []
     for i, e in enumerate(emails):
         date = (e.get("date_sent") or "")[:10]
         sender = e.get("from_name") or e.get("from_address", "")
         subject = e.get("subject", "")
-        body = e.get("body_preview", "")
+        body = (e.get("body_preview") or "")[:300]
         parts.append(f"[{i}] From: {sender} | Date: {date} | Subject: {subject}\n{body}")
     return "\n---\n".join(parts)
 
@@ -74,7 +79,7 @@ def call_llm(prompt: str, llm_url: str, timeout: int = 120) -> str:
         json={
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.3,
-            "max_tokens": 800,
+            "max_tokens": 500,
         },
         timeout=timeout,
     )
@@ -125,7 +130,7 @@ def main():
                         help="Fetch N threads at a time")
     parser.add_argument("--commit-every", type=int, default=50,
                         help="Commit to DB every N threads")
-    parser.add_argument("--timeout", type=int, default=120,
+    parser.add_argument("--timeout", type=int, default=300,
                         help="LLM timeout in seconds")
     args = parser.parse_args()
 

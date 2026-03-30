@@ -1,16 +1,16 @@
 # SmartCat Evaluation Questions
 
-50 вопросов для оценки качества RAG. Сравнение: до и после QA-extraction.
+50 questions for RAG quality evaluation. Comparison: before and after QA-extraction.
 
-Метрики:
-- **Relevance** (0-3): насколько ответ релевантен вопросу
-- **Accuracy** (0-3): фактическая точность (можно проверить по email)
-- **Citations** (0/1): есть ли ссылки на конкретные письма
-- **Latency** (сек): время до финального ответа
+Metrics:
+- **Relevance** (0-3): how relevant the answer is to the question
+- **Accuracy** (0-3): factual accuracy (verifiable from emails)
+- **Citations** (0/1): whether specific emails are referenced
+- **Latency** (sec): time to final answer
 
 ---
 
-## Category 1: Factual Lookup (точный поиск факта)
+## Category 1: Factual Lookup (exact fact retrieval)
 
 1. When did Enron file for Chapter 11 bankruptcy?
 2. Who sent the email about "Pre-Bankruptcy Bonuses" and what amount was mentioned?
@@ -23,7 +23,7 @@
 9. How many emails did Vince Kaminski send and what topics did he cover?
 10. What energy units (MMBtu, MWh) appear most frequently in the corpus?
 
-## Category 2: People & Relationships (кто с кем общался)
+## Category 2: People & Relationships (who communicated with whom)
 
 11. Who were the most frequent email senders at Enron?
 12. Which people communicated most with Jeff Skilling?
@@ -36,7 +36,7 @@
 19. Which external parties (non-Enron) appear most in the correspondence?
 20. Find communications between Enron and government regulators.
 
-## Category 3: Events & Timeline (хронология событий)
+## Category 3: Events & Timeline (chronology of events)
 
 21. What happened at Enron in October 2001?
 22. What were the key events in the California energy crisis as discussed in emails?
@@ -49,7 +49,7 @@
 29. Track the evolution of energy trading concerns from 2000 to 2001.
 30. When were employees told to report to work during the bankruptcy period?
 
-## Category 4: Topics & Themes (тематический поиск)
+## Category 4: Topics & Themes (topical search)
 
 31. What were the main legal concerns discussed in Enron emails?
 32. Find discussions about ISDA contracts and trading agreements.
@@ -62,7 +62,7 @@
 39. What technology systems and IT issues were discussed?
 40. Find discussions about Enron's international operations.
 
-## Category 5: Analysis & Reasoning (требует рассуждения)
+## Category 5: Analysis & Reasoning (requires reasoning)
 
 41. Based on the emails, what warning signs existed before Enron's collapse?
 42. How did the tone of internal emails change from early 2001 to December 2001?
