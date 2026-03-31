@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS emails (
     parent_email_id INTEGER REFERENCES emails(email_id),
     thread_confidence REAL,  -- 0.0-1.0, NULL=unset; 1.0=header-based, <0.7=subject-heuristic
     thread_method TEXT,      -- 'header', 'subject', 'body_marker', NULL
+    body_text_en TEXT,  -- English translation (NULL = already English or not translated)
     has_attachments INTEGER NOT NULL DEFAULT 0,
     has_forwarded_content INTEGER NOT NULL DEFAULT 0,
     has_reply_content INTEGER NOT NULL DEFAULT 0,
@@ -765,6 +766,55 @@ class EmailStore:
             (email_id, filename, content_type, file_hash, data),
         )
         return cursor.lastrowid
+
+    # -- Translation methods --
+
+    def get_emails_for_translation(self, limit: int = 1000) -> list[dict]:
+        """Get emails that need translation (body_text_en IS NULL)."""
+        conn = self.connect()
+        try:
+            rows = conn.execute(
+                """SELECT email_id, subject, SUBSTR(body_text, 1, 1500) as body_text, from_address
+                   FROM emails
+                   WHERE body_text_en IS NULL AND char_count > 20
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        except Exception:
+            # Column doesn't exist yet — migrate
+            conn.execute("ALTER TABLE emails ADD COLUMN body_text_en TEXT")
+            conn.commit()
+            rows = conn.execute(
+                """SELECT email_id, subject, SUBSTR(body_text, 1, 1500) as body_text, from_address
+                   FROM emails
+                   WHERE body_text_en IS NULL AND char_count > 20
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_email_translation(self, email_id: int, body_text_en: str):
+        """Update email with English translation."""
+        conn = self.connect()
+        conn.execute(
+            "UPDATE emails SET body_text_en = ? WHERE email_id = ?",
+            (body_text_en, email_id),
+        )
+
+    def get_translation_stats(self) -> dict:
+        """Get translation progress stats."""
+        conn = self.connect()
+        try:
+            row = conn.execute(
+                """SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN body_text_en IS NOT NULL THEN 1 ELSE 0 END) as translated,
+                    SUM(CASE WHEN body_text_en IS NULL THEN 1 ELSE 0 END) as pending
+                   FROM emails"""
+            ).fetchone()
+            return dict(row) if row else {}
+        except Exception:
+            return {}
 
     # -- QA pair methods --
 

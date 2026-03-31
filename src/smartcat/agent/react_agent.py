@@ -35,7 +35,7 @@ To use a tool, respond with a JSON block in this exact format:
 2. Use tools to find specific emails, threads, or entities.
 3. After getting tool results, analyze them and decide if you need more information.
 4. When you have enough information, provide a final answer with specific citations (Message-ID, date, sender).
-5. Maximum {max_steps} tool calls per question.
+5. Maximum {max_steps} tool calls per question. Use them wisely.
 6. ALWAYS cite your sources with Message-ID or email_id and date — even when the answer comes from pre-computed QA pairs in search results. Use get_email tool to retrieve the original email for proper citation.
 7. If you cannot find the answer, say so clearly.
 8. You can reason and provide analysis beyond what's in the emails, but clearly distinguish between facts from emails and your own reasoning.
@@ -91,7 +91,7 @@ class ReactAgent:
             resp = requests.post(
                 f"{self.llm_url}/v1/chat/completions",
                 json=payload,
-                timeout=300,
+                timeout=600,
             )
             resp.raise_for_status()
             data = resp.json()

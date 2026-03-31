@@ -112,8 +112,8 @@ class AgentTools:
         except Exception as e:
             return f"Error executing {tool_name}: {type(e).__name__}: {e}"
 
-    def _tool_search_emails(self, query: str, max_results: int = 5) -> str:
-        results = self.searcher.search(query, top_n=20)
+    def _tool_search_emails(self, query: str, max_results: int = 10) -> str:
+        results = self.searcher.search(query, top_n=30)
         if self.reranker and results:
             results = self.reranker.rerank(query, results, top_k=max_results)
         else:
@@ -125,7 +125,7 @@ class AgentTools:
         lines = [f"Found {len(results)} relevant emails:\n"]
         for i, r in enumerate(results, 1):
             score = r.get("rerank_score", r.get("rrf_score", 0))
-            body_preview = (r.get("body_text", "")[:100] + "...") if r.get("body_text") else ""
+            body_preview = (r.get("body_text", "")[:150] + "...") if r.get("body_text") else ""
             entry = (
                 f"{i}. [{r.get('date_sent', 'N/A')[:10]}] "
                 f"From: {r.get('from_name') or r.get('from_address', 'Unknown')} | "
@@ -150,7 +150,7 @@ class AgentTools:
             lines.append(entry)
         return "\n".join(lines)
 
-    def _tool_search_by_participant(self, name_or_email: str, limit: int = 10) -> str:
+    def _tool_search_by_participant(self, name_or_email: str, limit: int = 20) -> str:
         results = self.store.search_by_participant(name_or_email, limit=limit)
         if not results:
             return f"No emails found involving '{name_or_email}'."

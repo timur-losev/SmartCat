@@ -49,7 +49,7 @@ RRF_K = 60
 RERANK_CANDIDATES = 30
 
 # Agent
-AGENT_MAX_STEPS = 5
+AGENT_MAX_STEPS = 10
 
 # Ingestion
 INGESTION_WORKERS = 4  # for multiprocessing
