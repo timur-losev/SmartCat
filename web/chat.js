@@ -125,12 +125,10 @@ async function sendMessage() {
                             }
 
                             if (!answerMode) {
-                                const statusText = text.replace(/\n/g, ' ').trim();
+                                const statusText = text.replace(/\n/g, ' ');
                                 if (statusText) {
-                                    // Append to thinking stream in status bar
                                     const current = statusEl.textContent;
                                     const combined = current + statusText;
-                                    // Keep last 120 chars visible
                                     setStatus(combined.length > 120 ? '...' + combined.slice(-120) : combined);
                                 }
                             }
