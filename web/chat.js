@@ -34,7 +34,7 @@ if (sampleTextEl) sampleTextEl.textContent = sampleQ;
 
 function useSample() {
     inputEl.value = sampleQ;
-    inputEl.focus();
+    sendMessage();
 }
 
 function hideWelcome() {
