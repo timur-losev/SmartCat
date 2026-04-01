@@ -104,15 +104,24 @@ async def chat_result(task_id: str):
     if not task:
         return {"status": "not_found"}
 
+    # Always return current steps progress
+    steps_summary = []
+    for s in task["steps"]:
+        steps_summary.append({
+            "step": s["step"],
+            "tools": s["tools"],
+            "thinking_preview": s["thinking"][-150:] if s["thinking"] else "",
+        })
+
     result = {
         "status": task["status"],
         "question": task["question"],
         "steps_count": len(task["steps"]),
+        "steps": steps_summary,
     }
 
     if task["status"] == "done" or task["status"] == "error":
         result["answer"] = task["answer"]
-        result["steps"] = task["steps"]
         # Clean up after retrieval (keep for 5 min)
         asyncio.get_event_loop().call_later(300, lambda: _tasks.pop(task_id, None))
 

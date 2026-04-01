@@ -286,11 +286,16 @@ async function sendMessageAsync(query) {
     wrapper.className = 'message assistant';
     messagesEl.appendChild(wrapper);
 
+    const stepsDiv = document.createElement('div');
+    stepsDiv.className = 'steps-container';
+    wrapper.appendChild(stepsDiv);
+
     const answerDiv = document.createElement('div');
     answerDiv.className = 'answer-text';
     wrapper.appendChild(answerDiv);
 
     setStatus('Обрабатываю запрос...');
+    let renderedSteps = 0;
 
     try {
         const body = { message: query };
@@ -317,7 +322,30 @@ async function sendMessageAsync(query) {
                 const pollRes = await fetch(`/api/chat/result/${task_id}`);
                 const result = await pollRes.json();
 
-                setStatus(`Обрабатываю... (${attempts * 5}с, шагов: ${result.steps_count || 0})`);
+                // Render new steps as they appear
+                if (result.steps && result.steps.length > renderedSteps) {
+                    for (let i = renderedSteps; i < result.steps.length; i++) {
+                        const s = result.steps[i];
+                        const stepBlock = createStepBlock(stepsDiv, s.step);
+                        if (s.thinking_preview) {
+                            stepBlock.thinking.textContent = '...' + s.thinking_preview;
+                        }
+                        s.tools.forEach(t => {
+                            const tc = document.createElement('div');
+                            tc.className = 'step-tool';
+                            tc.textContent = TOOL_NAMES[t] || t;
+                            stepBlock.block.appendChild(tc);
+                        });
+                        // Collapse after showing
+                        stepBlock.thinking.classList.remove('expanded');
+                        stepBlock.header.classList.remove('expanded');
+                    }
+                    renderedSteps = result.steps.length;
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                }
+
+                const thinkPreview = result.steps?.slice(-1)?.[0]?.thinking_preview || '';
+                setStatus(`Шаг ${result.steps_count}... ${thinkPreview.slice(-60)}`);
 
                 if (result.status === 'done') {
                     let answer = result.answer || 'Ответ не получен.';
