@@ -126,12 +126,13 @@ body {
 }
 
 .answer-text {
-    line-height: 1.6;
+    line-height: 1.45;
 }
 
-.answer-text p { margin: 6px 0; }
-.answer-text ul, .answer-text ol { margin: 6px 0; padding-left: 20px; }
-.answer-text li { margin: 3px 0; }
+.answer-text p { margin: 2px 0; }
+.answer-text ul, .answer-text ol { margin: 2px 0; padding-left: 18px; }
+.answer-text li { margin: 1px 0; }
+.answer-text br { display: none; }
 .answer-text strong { color: #53d8fb; }
 .answer-text code {
     background: #111827;
@@ -153,13 +154,14 @@ body {
 .answer-text a { color: #53d8fb; }
 .answer-text blockquote {
     border-left: 3px solid #374151;
-    padding-left: 12px;
+    padding-left: 10px;
     color: #9ca3af;
-    margin: 8px 0;
+    margin: 3px 0;
 }
 .answer-text h1, .answer-text h2, .answer-text h3 {
     color: #53d8fb;
-    margin: 10px 0 6px;
+    margin: 6px 0 3px;
+    font-size: 15px;
 }
 .answer-text table {
     border-collapse: collapse;
