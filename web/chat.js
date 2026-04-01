@@ -3,8 +3,50 @@ const inputEl = document.getElementById('query-input');
 const sendBtn = document.getElementById('send-btn');
 const statusEl = document.getElementById('status');
 
-let sessionId = null;
+let sessionId = localStorage.getItem('smartcat_session') || null;
 let isStreaming = false;
+
+// Restore chat history from localStorage
+function restoreHistory() {
+    const saved = localStorage.getItem('smartcat_messages');
+    if (!saved) return;
+    try {
+        const msgs = JSON.parse(saved);
+        const welcome = document.getElementById('welcome');
+        if (msgs.length > 0 && welcome) welcome.style.display = 'none';
+        msgs.forEach(m => {
+            const div = document.createElement('div');
+            div.className = `message ${m.role}`;
+            if (m.role === 'assistant' && typeof marked !== 'undefined') {
+                const answerDiv = document.createElement('div');
+                answerDiv.className = 'answer-text';
+                answerDiv.innerHTML = marked.parse(m.text);
+                div.appendChild(answerDiv);
+            } else {
+                div.textContent = m.text;
+            }
+            messagesEl.appendChild(div);
+        });
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    } catch (e) {}
+}
+
+function saveHistory(role, text) {
+    try {
+        const saved = JSON.parse(localStorage.getItem('smartcat_messages') || '[]');
+        saved.push({ role, text });
+        // Keep last 50 messages
+        while (saved.length > 50) saved.shift();
+        localStorage.setItem('smartcat_messages', JSON.stringify(saved));
+    } catch (e) {}
+}
+
+function saveSession(sid) {
+    sessionId = sid;
+    localStorage.setItem('smartcat_session', sid);
+}
+
+restoreHistory();
 
 const SAMPLE_QUESTIONS = [
     "Когда Enron подал заявление о банкротстве по Chapter 11?",
@@ -116,6 +158,7 @@ async function sendMessage() {
 
     hideWelcome();
     addMessage('user', query);
+    saveHistory('user', query);
 
     // Use async polling on mobile (SSE breaks when screen off)
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -163,7 +206,7 @@ async function sendMessage() {
         });
 
         const sid = response.headers.get('X-Session-Id');
-        if (sid) sessionId = sid;
+        if (sid) saveSession(sid);
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -252,6 +295,7 @@ async function sendMessage() {
                                 answerText = cleaned || 'Ответ не сгенерирован.';
                                 renderAnswer();
                             }
+                            saveHistory('assistant', answerText);
                             break;
 
                         case 'error':
@@ -308,7 +352,7 @@ async function sendMessageAsync(query) {
             body: JSON.stringify(body),
         });
         const { task_id, session_id: sid } = await startRes.json();
-        if (sid) sessionId = sid;
+        if (sid) saveSession(sid);
 
         // Poll for result
         let attempts = 0;
@@ -373,13 +417,13 @@ async function sendMessageAsync(query) {
 
                 if (result.status === 'done') {
                     let answer = result.answer || 'Ответ не получен.';
-                    // Clean thinking markers
                     answer = answer.replace(/<\/?think>/g, '');
                     if (typeof marked !== 'undefined') {
                         answerDiv.innerHTML = marked.parse(answer);
                     } else {
                         answerDiv.textContent = answer;
                     }
+                    saveHistory('assistant', answer);
                     setStatus(`Готово (${result.steps_count} шагов)`);
                     break;
                 } else if (result.status === 'error') {
