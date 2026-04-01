@@ -37,7 +37,10 @@ To use a tool, respond with a JSON block in this exact format:
 2. Use tools to find specific emails, threads, or entities.
 3. After getting tool results, analyze them and decide if you need more information.
 4. When you have enough information, provide a final answer with specific citations (Message-ID, date, sender).
-5. Maximum {max_steps} tool calls per question. Use them wisely.
+5. Maximum {max_steps} tool calls per question. Use them wisely — do NOT load emails one by one. Use search tools to get overviews, then load only 1-2 specific emails if needed.
+6a. For "how many emails" or "who sent the most" questions — use get_top_senders or get_email_stats FIRST, not search_emails.
+6b. NEVER use more than 2 get_email calls per question. Summarize from search results instead.
+6c. If you are running low on steps (step 7+), STOP calling tools and give your Answer based on what you already have.
 6. ALWAYS cite your sources with Message-ID or email_id and date — even when the answer comes from pre-computed QA pairs in search results. Use get_email tool to retrieve the original email for proper citation.
 7. If you cannot find the answer, say so clearly.
 8. You can reason and provide analysis beyond what's in the emails, but clearly distinguish between facts from emails and your own reasoning.
@@ -147,7 +150,23 @@ class AsyncReactAgent:
             messages.append({"role": "assistant", "content": full_response})
             messages.append({"role": "user", "content": f"Tool result for {tool_name}:\n{tool_result}"})
         else:
-            final_answer = full_response
+            # Max steps reached — force a summary from what we have
+            log.warning("agent.web.max_steps_reached", steps=self.max_steps)
+            # Ask LLM to summarize with remaining context
+            messages.append({"role": "assistant", "content": full_response})
+            messages.append({
+                "role": "user",
+                "content": "You have reached the maximum number of steps. "
+                           "Based on ALL the information you have gathered so far, "
+                           "provide your final Answer now. Do NOT call any more tools.",
+            })
+            summary = ""
+            async for chunk_text in self._stream_llm(messages):
+                clean = chunk_text.replace("<think>", "").replace("</think>", "")
+                summary += clean
+                if clean.strip():
+                    yield {"event": "token", "text": clean}
+            final_answer = summary
             yield {"event": "done", "steps_used": self.max_steps}
 
         # Save to session history
