@@ -110,9 +110,13 @@ class AsyncReactAgent:
 
             # Stream LLM response
             full_response = ""
+            in_think = False
             async for chunk_text in self._stream_llm(messages):
-                full_response += chunk_text
-                yield {"event": "token", "text": chunk_text}
+                # Filter out <think> blocks from Qwen3
+                clean = chunk_text.replace("<think>", "").replace("</think>", "")
+                full_response += clean
+                if clean.strip():
+                    yield {"event": "token", "text": clean}
 
             # Check for tool call
             tool_call = self._extract_tool_call(full_response)

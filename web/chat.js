@@ -111,7 +111,9 @@ async function sendMessage() {
                             break;
 
                         case 'token':
-                            const text = event.text || '';
+                            let text = event.text || '';
+                            // Strip Qwen3 think tags
+                            text = text.replace(/<\/?think>/g, '');
                             fullText += text;
 
                             if (text.includes('Answer:')) {
@@ -142,11 +144,12 @@ async function sendMessage() {
                             setStatus(`Готово (${event.steps_used} шагов)`);
                             if (!answerMode && answerDiv.textContent === '') {
                                 // Fallback: extract answer from full text
-                                // Remove tool call blocks and thinking prefixes
                                 let cleaned = fullText
                                     .replace(/```tool[\s\S]*?```/g, '')
+                                    .replace(/<think>[\s\S]*?<\/think>/g, '')
+                                    .replace(/<think>[\s\S]*/g, '')
                                     .replace(/^Thinking:.*$/gm, '')
-                                    .replace(/^Tool result[\s\S]*?(?=\n\n|\Z)/gm, '')
+                                    .replace(/^Tool result[\s\S]*?(?=\n\n|$)/gm, '')
                                     .trim();
                                 answerDiv.textContent = cleaned || 'Ответ не сгенерирован.';
                             }
