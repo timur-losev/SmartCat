@@ -205,9 +205,14 @@ class AgentTools:
         self, email_id: Optional[int] = None, message_id: Optional[str] = None
     ) -> str:
         if email_id is not None:
-            email_data = self.store.get_email(email_id)
+            email_data = self.store.get_email(int(email_id))
         elif message_id is not None:
-            email_data = self.store.get_email_by_message_id(message_id)
+            # Agent sometimes passes email_id as message_id string
+            try:
+                numeric_id = int(message_id)
+                email_data = self.store.get_email(numeric_id)
+            except (ValueError, TypeError):
+                email_data = self.store.get_email_by_message_id(message_id)
         else:
             return "Error: provide either email_id or message_id"
 
