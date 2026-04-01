@@ -117,6 +117,13 @@ async function sendMessage() {
     hideWelcome();
     addMessage('user', query);
 
+    // Use async polling on mobile (SSE breaks when screen off)
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if (isMobile) {
+        await sendMessageAsync(query);
+        return;
+    }
+
     const wrapper = document.createElement('div');
     wrapper.className = 'message assistant';
     messagesEl.appendChild(wrapper);
@@ -272,6 +279,85 @@ async function sendMessage() {
     isStreaming = false;
     sendBtn.disabled = false;
     inputEl.focus();
+}
+
+async function sendMessageAsync(query) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message assistant';
+    messagesEl.appendChild(wrapper);
+
+    const answerDiv = document.createElement('div');
+    answerDiv.className = 'answer-text';
+    wrapper.appendChild(answerDiv);
+
+    setStatus('Обрабатываю запрос...');
+
+    try {
+        const body = { message: query };
+        if (sessionId) body.session_id = sessionId;
+
+        // Submit task
+        const startRes = await fetch('/api/chat/async', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const { task_id, session_id: sid } = await startRes.json();
+        if (sid) sessionId = sid;
+
+        // Poll for result
+        let attempts = 0;
+        const maxAttempts = 120; // 10 min max (5s intervals)
+
+        while (attempts < maxAttempts) {
+            await new Promise(r => setTimeout(r, 5000));
+            attempts++;
+
+            try {
+                const pollRes = await fetch(`/api/chat/result/${task_id}`);
+                const result = await pollRes.json();
+
+                setStatus(`Обрабатываю... (${attempts * 5}с, шагов: ${result.steps_count || 0})`);
+
+                if (result.status === 'done') {
+                    let answer = result.answer || 'Ответ не получен.';
+                    // Clean thinking markers
+                    answer = answer.replace(/<\/?think>/g, '');
+                    if (typeof marked !== 'undefined') {
+                        answerDiv.innerHTML = marked.parse(answer);
+                    } else {
+                        answerDiv.textContent = answer;
+                    }
+                    setStatus(`Готово (${result.steps_count} шагов)`);
+                    break;
+                } else if (result.status === 'error') {
+                    answerDiv.textContent = result.answer || 'Ошибка';
+                    setStatus('Ошибка');
+                    break;
+                }
+            } catch (pollErr) {
+                // Network blip during poll — keep trying
+                setStatus(`Переподключаюсь... (${attempts * 5}с)`);
+            }
+        }
+
+        if (attempts >= maxAttempts) {
+            answerDiv.textContent = 'Превышено время ожидания.';
+            setStatus('Таймаут');
+        }
+    } catch (err) {
+        answerDiv.innerHTML = `
+            <div style="color:#f59e0b">Ошибка отправки</div>
+            <button onclick="retryLast()" style="margin-top:8px;padding:6px 16px;border-radius:8px;border:1px solid #53d8fb;background:transparent;color:#53d8fb;cursor:pointer;font-size:13px">
+                Повторить запрос
+            </button>`;
+        setStatus('Отключено');
+    }
+
+    isStreaming = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 sendBtn.addEventListener('click', sendMessage);
