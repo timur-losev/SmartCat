@@ -77,7 +77,8 @@ if (sampleTextEl) sampleTextEl.textContent = sampleQ;
 let lastQuery = '';
 
 function useSample() {
-    inputEl.value = sampleQ;
+    const el = document.querySelector('.welcome-sample-text');
+    inputEl.value = el ? el.textContent : sampleQ;
     sendMessage();
 }
 
@@ -97,6 +98,39 @@ function retryLast() {
 function hideWelcome() {
     const welcome = document.getElementById('welcome');
     if (welcome) welcome.style.display = 'none';
+}
+
+function resetChat() {
+    // Clear localStorage
+    localStorage.removeItem('smartcat_session');
+    localStorage.removeItem('smartcat_messages');
+    sessionId = null;
+    _msgCounter = 0;
+
+    // Clear messages, restore welcome
+    messagesEl.innerHTML = '';
+    const welcome = document.createElement('div');
+    welcome.id = 'welcome';
+    welcome.innerHTML = `
+        <div class="welcome-emoji">&#128049;</div>
+        <h2 class="welcome-title">SmartCat</h2>
+        <p class="welcome-desc">
+            AI-ассистент для поиска и анализа email-переписки.<br>
+            245K писем Enron, гибридный поиск, 31K QA-пар.
+        </p>
+        <div class="welcome-sample" onclick="useSample()">
+            <div class="welcome-sample-label">Попробуй спросить:</div>
+            <div class="welcome-sample-text">${SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)]}</div>
+        </div>`;
+    messagesEl.appendChild(welcome);
+
+    // Update sample question for useSample()
+    const newQ = SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)];
+    welcome.querySelector('.welcome-sample-text').textContent = newQ;
+
+    setStatus('Готов');
+    inputEl.value = '';
+    inputEl.focus();
 }
 
 const TOOL_NAMES = {
