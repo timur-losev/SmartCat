@@ -107,7 +107,7 @@ async function sendMessage() {
                     switch (event.event) {
                         case 'step_start':
                             addStepIndicator(stepsDiv, event.step);
-                            setStatus(`Шаг ${event.step}/${event.max_steps}`);
+                            setStatus(`Шаг ${event.step}: `);
                             break;
 
                         case 'token':
@@ -124,9 +124,15 @@ async function sendMessage() {
                                 answerDiv.textContent += text;
                             }
 
-                            if (!answerMode && text.length < 80) {
+                            if (!answerMode) {
                                 const statusText = text.replace(/\n/g, ' ').trim();
-                                if (statusText) setStatus(statusText.substring(0, 60));
+                                if (statusText) {
+                                    // Append to thinking stream in status bar
+                                    const current = statusEl.textContent;
+                                    const combined = current + statusText;
+                                    // Keep last 120 chars visible
+                                    setStatus(combined.length > 120 ? '...' + combined.slice(-120) : combined);
+                                }
                             }
                             break;
 
