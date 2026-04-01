@@ -105,6 +105,9 @@ class ReactAgent:
             if not content and reasoning:
                 # Extract useful text from thinking block
                 content = reasoning
+            # Fix Qwen3 missing spaces between Cyrillic and digits
+            content = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', content)
+            content = re.sub(r'(\d)([а-яА-ЯёЁ])', r'\1 \2', content)
             return content
         except requests.ConnectionError:
             return "Error: Cannot connect to LLM server. Is llama-server running?"

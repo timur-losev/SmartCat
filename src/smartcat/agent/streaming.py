@@ -113,10 +113,12 @@ class AsyncReactAgent:
 
             # Stream LLM response
             full_response = ""
-            in_think = False
             async for chunk_text in self._stream_llm(messages):
                 # Filter out <think> blocks from Qwen3
                 clean = chunk_text.replace("<think>", "").replace("</think>", "")
+                # Fix Qwen3 missing spaces between Cyrillic and digits
+                clean = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', clean)
+                clean = re.sub(r'(\d)([а-яА-ЯёЁ])', r'\1 \2', clean)
                 full_response += clean
                 if clean.strip():
                     yield {"event": "token", "text": clean}
