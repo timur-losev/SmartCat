@@ -6,51 +6,38 @@ const statusEl = document.getElementById('status');
 let sessionId = null;
 let isStreaming = false;
 
+const TOOL_NAMES = {
+    'search_emails': 'Поиск писем',
+    'search_by_participant': 'Поиск по участнику',
+    'search_by_date_range': 'Поиск по дате',
+    'search_entities': 'Поиск сущностей',
+    'get_email': 'Загрузка письма',
+    'get_thread': 'Загрузка цепочки',
+    'get_email_stats': 'Статистика',
+    'get_top_senders': 'Топ отправителей',
+};
+
 function addMessage(role, content) {
     const div = document.createElement('div');
     div.className = `message ${role}`;
-    div.textContent = content;
+    if (content) div.textContent = content;
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return div;
 }
 
-function appendToLast(text) {
-    const last = messagesEl.querySelector('.message:last-child');
-    if (last && last.classList.contains('assistant')) {
-        last.textContent += text;
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
+function addStepIndicator(msgDiv, step) {
+    const ind = document.createElement('div');
+    ind.className = 'step-indicator';
+    ind.textContent = `Шаг ${step}`;
+    msgDiv.appendChild(ind);
 }
 
-function addStepIndicator(step) {
-    const last = messagesEl.querySelector('.message.assistant:last-child');
-    if (last) {
-        const ind = document.createElement('div');
-        ind.className = 'step-indicator';
-        ind.textContent = `Step ${step}`;
-        last.appendChild(ind);
-    }
-}
-
-function addToolCall(tool, args) {
-    const last = messagesEl.querySelector('.message.assistant:last-child');
-    if (last) {
-        const tc = document.createElement('div');
-        tc.className = 'tool-call';
-        tc.textContent = `${tool}(${JSON.stringify(args).substring(0, 80)})`;
-        last.appendChild(tc);
-    }
-}
-
-function addToolResult(preview) {
-    const last = messagesEl.querySelector('.message.assistant:last-child');
-    if (last) {
-        const tr = document.createElement('div');
-        tr.className = 'tool-result';
-        tr.textContent = preview.substring(0, 200);
-        last.appendChild(tr);
-    }
+function addToolCall(msgDiv, tool) {
+    const tc = document.createElement('div');
+    tc.className = 'tool-call';
+    tc.textContent = TOOL_NAMES[tool] || tool;
+    msgDiv.appendChild(tc);
 }
 
 function setStatus(text) {
@@ -66,8 +53,24 @@ async function sendMessage() {
     inputEl.value = '';
 
     addMessage('user', query);
-    const assistantDiv = addMessage('assistant', '');
-    setStatus('Thinking...');
+
+    // Create steps container (collapsible) and answer container
+    const wrapper = document.createElement('div');
+    wrapper.className = 'message assistant';
+    messagesEl.appendChild(wrapper);
+
+    const stepsDiv = document.createElement('div');
+    stepsDiv.className = 'steps-container';
+    wrapper.appendChild(stepsDiv);
+
+    const answerDiv = document.createElement('div');
+    answerDiv.className = 'answer-text';
+    wrapper.appendChild(answerDiv);
+
+    setStatus('Думаю...');
+
+    let fullText = '';
+    let answerMode = false;
 
     try {
         const body = { message: query };
@@ -79,14 +82,12 @@ async function sendMessage() {
             body: JSON.stringify(body),
         });
 
-        // Capture session ID
         const sid = response.headers.get('X-Session-Id');
         if (sid) sessionId = sid;
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let answerMode = false;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -105,57 +106,70 @@ async function sendMessage() {
                     const event = JSON.parse(data);
                     switch (event.event) {
                         case 'step_start':
-                            if (event.step > 1) {
-                                addStepIndicator(event.step);
-                            }
-                            setStatus(`Step ${event.step}/${event.max_steps}`);
+                            addStepIndicator(stepsDiv, event.step);
+                            setStatus(`Шаг ${event.step}/${event.max_steps}`);
                             break;
+
                         case 'token':
                             const text = event.text || '';
-                            // Accumulate all tokens for fallback
-                            if (!assistantDiv._fullText) assistantDiv._fullText = '';
-                            assistantDiv._fullText += text;
+                            fullText += text;
 
                             if (text.includes('Answer:')) {
                                 answerMode = true;
                                 const after = text.split('Answer:')[1] || '';
-                                assistantDiv.textContent = after;
+                                answerDiv.textContent = after;
                             } else if (answerMode) {
-                                assistantDiv.textContent += text;
+                                answerDiv.textContent += text;
                             }
-                            // Show thinking in status
+
                             if (!answerMode && text.length < 80) {
-                                setStatus(text.replace(/\n/g, ' ').substring(0, 60));
+                                const statusText = text.replace(/\n/g, ' ').trim();
+                                if (statusText) setStatus(statusText.substring(0, 60));
                             }
                             break;
+
                         case 'tool_call':
-                            addToolCall(event.tool, event.args || {});
-                            setStatus(`Calling ${event.tool}...`);
+                            addToolCall(stepsDiv, event.tool);
+                            setStatus(`${TOOL_NAMES[event.tool] || event.tool}...`);
                             break;
+
                         case 'tool_result':
-                            addToolResult(event.preview || '');
+                            // Don't show raw results — just update status
+                            setStatus('Анализирую результаты...');
                             break;
+
                         case 'done':
-                            setStatus(`Done (${event.steps_used} steps)`);
-                            // Fallback: if no "Answer:" marker was found, show full response
-                            if (!answerMode && assistantDiv.textContent === '') {
-                                assistantDiv.textContent = assistantDiv._fullText || 'No answer generated.';
+                            setStatus(`Готово (${event.steps_used} шагов)`);
+                            if (!answerMode && answerDiv.textContent === '') {
+                                // Fallback: extract answer from full text
+                                // Remove tool call blocks and thinking prefixes
+                                let cleaned = fullText
+                                    .replace(/```tool[\s\S]*?```/g, '')
+                                    .replace(/^Thinking:.*$/gm, '')
+                                    .replace(/^Tool result[\s\S]*?(?=\n\n|\Z)/gm, '')
+                                    .trim();
+                                answerDiv.textContent = cleaned || 'Ответ не сгенерирован.';
+                            }
+                            // Hide steps if empty
+                            if (!stepsDiv.children.length) {
+                                stepsDiv.style.display = 'none';
                             }
                             break;
+
                         case 'error':
-                            assistantDiv.textContent = event.message || 'Error';
-                            setStatus('Error');
+                            answerDiv.textContent = event.message || 'Ошибка';
+                            setStatus('Ошибка');
                             break;
                     }
                 } catch (e) {
-                    // Skip unparseable lines
+                    // Skip unparseable
                 }
             }
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
     } catch (err) {
-        assistantDiv.textContent = `Connection error: ${err.message}`;
-        setStatus('Disconnected');
+        answerDiv.textContent = `Ошибка подключения: ${err.message}`;
+        setStatus('Отключено');
     }
 
     isStreaming = false;
@@ -163,7 +177,6 @@ async function sendMessage() {
     inputEl.focus();
 }
 
-// Event listeners
 sendBtn.addEventListener('click', sendMessage);
 inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -172,8 +185,7 @@ inputEl.addEventListener('keydown', (e) => {
     }
 });
 
-// Health check
 fetch('/api/health')
     .then(r => r.json())
-    .then(d => setStatus('Ready'))
-    .catch(() => setStatus('Server unavailable'));
+    .then(() => setStatus('Готов'))
+    .catch(() => setStatus('Сервер недоступен'));

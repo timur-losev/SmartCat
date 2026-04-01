@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,20 +9,19 @@
 <body>
     <div id="header">
         <h1>SmartCat</h1>
-        <span class="status" id="status">Connecting...</span>
+        <span class="status" id="status">Подключение...</span>
     </div>
 
     <div id="messages">
         <div class="message assistant">
-            Hello! I'm SmartCat, your email search assistant.
-            Ask me anything about the Enron email corpus — I can search emails,
-            find specific people, look up deals, and analyze communication patterns.
+            <div class="answer-text">Привет! Я SmartCat, ассистент по поиску email.
+Спрашивай что угодно о корпусе Enron — я умею искать письма, находить людей, сделки и анализировать переписку.</div>
         </div>
     </div>
 
     <div id="input-area">
-        <input type="text" id="query-input" placeholder="Ask about the email corpus..." autofocus>
-        <button id="send-btn">Send</button>
+        <input type="text" id="query-input" placeholder="Задай вопрос о переписке..." autofocus>
+        <button id="send-btn">Отправить</button>
     </div>
 
     <script src="chat.js"></script>

@@ -61,32 +61,34 @@ body {
     border-bottom-left-radius: 4px;
 }
 
-.message.assistant .step-indicator {
-    font-size: 11px;
-    color: #53d8fb;
-    margin-bottom: 4px;
-    opacity: 0.7;
+.steps-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
 }
 
-.message.assistant .tool-call {
-    font-size: 12px;
+.steps-container:empty {
+    display: none;
+}
+
+.step-indicator {
+    font-size: 11px;
+    color: #53d8fb;
+    opacity: 0.6;
+}
+
+.tool-call {
+    font-size: 11px;
     color: #f59e0b;
     background: #1a1a2e;
-    padding: 4px 8px;
-    border-radius: 6px;
-    margin: 4px 0;
+    padding: 2px 8px;
+    border-radius: 10px;
     display: inline-block;
 }
 
-.message.assistant .tool-result {
-    font-size: 11px;
-    color: #9ca3af;
-    background: #111827;
-    padding: 6px 8px;
-    border-radius: 6px;
-    margin: 4px 0;
-    max-height: 100px;
-    overflow-y: auto;
+.answer-text {
+    line-height: 1.6;
 }
 
 #input-area {
