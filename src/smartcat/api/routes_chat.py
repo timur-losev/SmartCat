@@ -110,7 +110,7 @@ async def chat_result(task_id: str):
         steps_summary.append({
             "step": s["step"],
             "tools": s["tools"],
-            "thinking_preview": s["thinking"][-150:] if s["thinking"] else "",
+            "thinking": s["thinking"] if s["thinking"] else "",
         })
 
     result = {

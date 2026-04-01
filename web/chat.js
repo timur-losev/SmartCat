@@ -312,40 +312,64 @@ async function sendMessageAsync(query) {
 
         // Poll for result
         let attempts = 0;
-        const maxAttempts = 120; // 10 min max (5s intervals)
+        const maxAttempts = 300; // 10 min max (2s intervals)
 
         while (attempts < maxAttempts) {
-            await new Promise(r => setTimeout(r, 5000));
+            await new Promise(r => setTimeout(r, 2000));
             attempts++;
 
             try {
                 const pollRes = await fetch(`/api/chat/result/${task_id}`);
                 const result = await pollRes.json();
 
-                // Render new steps as they appear
-                if (result.steps && result.steps.length > renderedSteps) {
-                    for (let i = renderedSteps; i < result.steps.length; i++) {
+                // Render and update steps
+                if (result.steps) {
+                    for (let i = 0; i < result.steps.length; i++) {
                         const s = result.steps[i];
-                        const stepBlock = createStepBlock(stepsDiv, s.step);
-                        if (s.thinking_preview) {
-                            stepBlock.thinking.textContent = '...' + s.thinking_preview;
+                        let existingThinking = document.getElementById(`async-thinking-${i}`);
+
+                        if (!existingThinking) {
+                            // New step — create block
+                            const stepBlock = createStepBlock(stepsDiv, s.step);
+                            stepBlock.thinking.id = `async-thinking-${i}`;
+                            stepBlock.block.id = `async-block-${i}`;
+                            // Collapse previous steps
+                            if (i > 0) {
+                                const prevThink = document.getElementById(`async-thinking-${i-1}`);
+                                if (prevThink) prevThink.classList.remove('expanded');
+                                const prevBlock = document.getElementById(`async-block-${i-1}`);
+                                if (prevBlock) {
+                                    const prevHeader = prevBlock.querySelector('.step-header');
+                                    if (prevHeader) prevHeader.classList.remove('expanded');
+                                }
+                            }
+                            existingThinking = stepBlock.thinking;
                         }
-                        s.tools.forEach(t => {
-                            const tc = document.createElement('div');
-                            tc.className = 'step-tool';
-                            tc.textContent = TOOL_NAMES[t] || t;
-                            stepBlock.block.appendChild(tc);
-                        });
-                        // Collapse after showing
-                        stepBlock.thinking.classList.remove('expanded');
-                        stepBlock.header.classList.remove('expanded');
+
+                        // Update thinking text (strip think tags, fix spaces)
+                        let thinkText = (s.thinking || '')
+                            .replace(/<\/?think>/g, '')
+                            .replace(/```tool[\s\S]*?```/g, '[tool call]');
+                        existingThinking.textContent = thinkText;
+                        existingThinking.scrollTop = existingThinking.scrollHeight;
+
+                        // Update tools
+                        const block = document.getElementById(`async-block-${i}`);
+                        if (block) {
+                            block.querySelectorAll('.step-tool').forEach(el => el.remove());
+                            s.tools.forEach(t => {
+                                const tc = document.createElement('div');
+                                tc.className = 'step-tool';
+                                tc.textContent = TOOL_NAMES[t] || t;
+                                block.appendChild(tc);
+                            });
+                        }
                     }
                     renderedSteps = result.steps.length;
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                 }
 
-                const thinkPreview = result.steps?.slice(-1)?.[0]?.thinking_preview || '';
-                setStatus(`Шаг ${result.steps_count}... ${thinkPreview.slice(-60)}`);
+                setStatus(`Шаг ${result.steps_count || 1}...`);
 
                 if (result.status === 'done') {
                     let answer = result.answer || 'Ответ не получен.';
