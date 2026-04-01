@@ -116,7 +116,16 @@ async function sendMessage() {
     setStatus('Думаю...');
 
     let fullText = '';
+    let answerText = '';
     let answerMode = false;
+
+    function renderAnswer() {
+        if (typeof marked !== 'undefined') {
+            answerDiv.innerHTML = marked.parse(answerText);
+        } else {
+            answerDiv.textContent = answerText;
+        }
+    }
     let currentStep = null;
     let currentThinking = null;
 
@@ -168,15 +177,16 @@ async function sendMessage() {
 
                             if (text.includes('Answer:')) {
                                 answerMode = true;
-                                // Collapse current thinking
                                 if (currentThinking) {
                                     currentThinking.classList.remove('expanded');
                                     if (currentStep) currentStep.header.classList.remove('expanded');
                                 }
                                 const after = text.split('Answer:')[1] || '';
-                                answerDiv.textContent = after;
+                                answerText = after;
+                                renderAnswer();
                             } else if (answerMode) {
-                                answerDiv.textContent += text;
+                                answerText += text;
+                                renderAnswer();
                             } else if (currentThinking) {
                                 // Append to thinking block
                                 currentThinking.textContent += text;
@@ -208,7 +218,7 @@ async function sendMessage() {
 
                         case 'done':
                             setStatus(`Готово (${event.steps_used} шагов)`);
-                            if (!answerMode && answerDiv.textContent === '') {
+                            if (!answerMode && !answerText) {
                                 let cleaned = fullText
                                     .replace(/```tool[\s\S]*?```/g, '')
                                     .replace(/<think>[\s\S]*?<\/think>/g, '')
@@ -216,12 +226,14 @@ async function sendMessage() {
                                     .replace(/^Thinking:.*$/gm, '')
                                     .replace(/^Tool result[\s\S]*?(?=\n\n|$)/gm, '')
                                     .trim();
-                                answerDiv.textContent = cleaned || 'Ответ не сгенерирован.';
+                                answerText = cleaned || 'Ответ не сгенерирован.';
+                                renderAnswer();
                             }
                             break;
 
                         case 'error':
-                            answerDiv.textContent = event.message || 'Ошибка';
+                            answerText = event.message || 'Ошибка';
+                            renderAnswer();
                             setStatus('Ошибка');
                             break;
                     }
@@ -232,7 +244,8 @@ async function sendMessage() {
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
     } catch (err) {
-        answerDiv.textContent = `Ошибка подключения: ${err.message}`;
+        answerText = `Ошибка подключения: ${err.message}`;
+        renderAnswer();
         setStatus('Отключено');
     }
 

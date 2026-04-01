@@ -129,6 +129,52 @@ body {
     line-height: 1.6;
 }
 
+.answer-text p { margin: 6px 0; }
+.answer-text ul, .answer-text ol { margin: 6px 0; padding-left: 20px; }
+.answer-text li { margin: 3px 0; }
+.answer-text strong { color: #53d8fb; }
+.answer-text code {
+    background: #111827;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+.answer-text pre {
+    background: #111827;
+    padding: 10px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+.answer-text pre code {
+    background: none;
+    padding: 0;
+}
+.answer-text a { color: #53d8fb; }
+.answer-text blockquote {
+    border-left: 3px solid #374151;
+    padding-left: 12px;
+    color: #9ca3af;
+    margin: 8px 0;
+}
+.answer-text h1, .answer-text h2, .answer-text h3 {
+    color: #53d8fb;
+    margin: 10px 0 6px;
+}
+.answer-text table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 13px;
+}
+.answer-text th, .answer-text td {
+    border: 1px solid #374151;
+    padding: 4px 8px;
+}
+.answer-text th {
+    background: #111827;
+    color: #53d8fb;
+}
+
 /* Welcome screen */
 #welcome {
     flex: 1;
