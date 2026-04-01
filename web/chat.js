@@ -26,22 +26,32 @@ function addMessage(role, content) {
     return div;
 }
 
-function addStepIndicator(msgDiv, step) {
-    const ind = document.createElement('div');
-    ind.className = 'step-indicator';
-    ind.textContent = `Шаг ${step}`;
-    msgDiv.appendChild(ind);
-}
-
-function addToolCall(msgDiv, tool) {
-    const tc = document.createElement('div');
-    tc.className = 'tool-call';
-    tc.textContent = TOOL_NAMES[tool] || tool;
-    msgDiv.appendChild(tc);
-}
-
 function setStatus(text) {
     statusEl.textContent = text;
+}
+
+function createStepBlock(stepsDiv, step) {
+    const block = document.createElement('div');
+    block.className = 'step-block';
+    block.id = `step-${step}`;
+
+    const header = document.createElement('div');
+    header.className = 'step-header';
+    header.textContent = `Шаг ${step}`;
+    header.onclick = () => {
+        header.classList.toggle('expanded');
+        thinking.classList.toggle('expanded');
+    };
+
+    const thinking = document.createElement('div');
+    thinking.className = 'step-thinking expanded';
+    thinking.id = `thinking-${step}`;
+
+    block.appendChild(header);
+    block.appendChild(thinking);
+    stepsDiv.appendChild(block);
+
+    return { block, header, thinking };
 }
 
 async function sendMessage() {
@@ -54,7 +64,6 @@ async function sendMessage() {
 
     addMessage('user', query);
 
-    // Create steps container (collapsible) and answer container
     const wrapper = document.createElement('div');
     wrapper.className = 'message assistant';
     messagesEl.appendChild(wrapper);
@@ -71,6 +80,8 @@ async function sendMessage() {
 
     let fullText = '';
     let answerMode = false;
+    let currentStep = null;
+    let currentThinking = null;
 
     try {
         const body = { message: query };
@@ -105,49 +116,62 @@ async function sendMessage() {
                 try {
                     const event = JSON.parse(data);
                     switch (event.event) {
-                        case 'step_start':
-                            addStepIndicator(stepsDiv, event.step);
-                            setStatus(`Шаг ${event.step}: `);
+                        case 'step_start': {
+                            const s = createStepBlock(stepsDiv, event.step);
+                            currentStep = s;
+                            currentThinking = s.thinking;
+                            setStatus(`Шаг ${event.step}/${event.max_steps}`);
                             break;
+                        }
 
-                        case 'token':
+                        case 'token': {
                             let text = event.text || '';
-                            // Strip Qwen3 think tags
                             text = text.replace(/<\/?think>/g, '');
                             fullText += text;
 
                             if (text.includes('Answer:')) {
                                 answerMode = true;
+                                // Collapse current thinking
+                                if (currentThinking) {
+                                    currentThinking.classList.remove('expanded');
+                                    if (currentStep) currentStep.header.classList.remove('expanded');
+                                }
                                 const after = text.split('Answer:')[1] || '';
                                 answerDiv.textContent = after;
                             } else if (answerMode) {
                                 answerDiv.textContent += text;
-                            }
-
-                            if (!answerMode) {
-                                const statusText = text.replace(/\n/g, ' ');
-                                if (statusText) {
-                                    const current = statusEl.textContent;
-                                    const combined = current + statusText;
-                                    setStatus(combined.length > 120 ? '...' + combined.slice(-120) : combined);
-                                }
+                            } else if (currentThinking) {
+                                // Append to thinking block
+                                currentThinking.textContent += text;
+                                // Auto-scroll thinking
+                                currentThinking.scrollTop = currentThinking.scrollHeight;
                             }
                             break;
+                        }
 
-                        case 'tool_call':
-                            addToolCall(stepsDiv, event.tool);
+                        case 'tool_call': {
+                            if (currentStep) {
+                                const tc = document.createElement('div');
+                                tc.className = 'step-tool';
+                                tc.textContent = TOOL_NAMES[event.tool] || event.tool;
+                                currentStep.block.appendChild(tc);
+                            }
                             setStatus(`${TOOL_NAMES[event.tool] || event.tool}...`);
+                            // Collapse thinking for this step
+                            if (currentThinking) {
+                                currentThinking.classList.remove('expanded');
+                                if (currentStep) currentStep.header.classList.remove('expanded');
+                            }
                             break;
+                        }
 
                         case 'tool_result':
-                            // Don't show raw results — just update status
-                            setStatus('Анализирую результаты...');
+                            setStatus('Анализирую...');
                             break;
 
                         case 'done':
                             setStatus(`Готово (${event.steps_used} шагов)`);
                             if (!answerMode && answerDiv.textContent === '') {
-                                // Fallback: extract answer from full text
                                 let cleaned = fullText
                                     .replace(/```tool[\s\S]*?```/g, '')
                                     .replace(/<think>[\s\S]*?<\/think>/g, '')
@@ -156,10 +180,6 @@ async function sendMessage() {
                                     .replace(/^Tool result[\s\S]*?(?=\n\n|$)/gm, '')
                                     .trim();
                                 answerDiv.textContent = cleaned || 'Ответ не сгенерирован.';
-                            }
-                            // Hide steps if empty
-                            if (!stepsDiv.children.length) {
-                                stepsDiv.style.display = 'none';
                             }
                             break;
 

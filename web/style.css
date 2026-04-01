@@ -68,28 +68,61 @@ body {
 
 .steps-container {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-bottom: 8px;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 10px;
 }
 
 .steps-container:empty {
     display: none;
 }
 
-.step-indicator {
-    font-size: 11px;
-    color: #53d8fb;
-    opacity: 0.6;
+.step-block {
+    border-left: 2px solid #0f3460;
+    padding-left: 10px;
 }
 
-.tool-call {
+.step-header {
+    font-size: 11px;
+    color: #53d8fb;
+    font-weight: 600;
+    margin-bottom: 2px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.step-header::before {
+    content: '▸ ';
+}
+
+.step-header.expanded::before {
+    content: '▾ ';
+}
+
+.step-thinking {
+    font-size: 12px;
+    color: #9ca3af;
+    line-height: 1.4;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.step-thinking.expanded {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.step-tool {
     font-size: 11px;
     color: #f59e0b;
     background: #1a1a2e;
     padding: 2px 8px;
     border-radius: 10px;
     display: inline-block;
+    margin-top: 4px;
 }
 
 .answer-text {
