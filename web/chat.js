@@ -123,10 +123,13 @@ function setStatus(text) {
     statusEl.textContent = text;
 }
 
-function createStepBlock(stepsDiv, step) {
+let _msgCounter = 0;
+
+function createStepBlock(stepsDiv, step, msgId) {
+    const prefix = msgId || `msg-${_msgCounter}`;
     const block = document.createElement('div');
     block.className = 'step-block';
-    block.id = `step-${step}`;
+    block.id = `${prefix}-step-${step}`;
 
     const header = document.createElement('div');
     header.className = 'step-header';
@@ -138,7 +141,7 @@ function createStepBlock(stepsDiv, step) {
 
     const thinking = document.createElement('div');
     thinking.className = 'step-thinking expanded';
-    thinking.id = `thinking-${step}`;
+    thinking.id = `${prefix}-thinking-${step}`;
 
     block.appendChild(header);
     block.appendChild(thinking);
@@ -156,6 +159,9 @@ async function sendMessage() {
     inputEl.value = '';
     lastQuery = query;
 
+    _msgCounter++;
+    const currentMsgId = `msg-${_msgCounter}`;
+
     hideWelcome();
     addMessage('user', query);
     saveHistory('user', query);
@@ -163,7 +169,7 @@ async function sendMessage() {
     // Use async polling on mobile (SSE breaks when screen off)
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isMobile) {
-        await sendMessageAsync(query);
+        await sendMessageAsync(query, currentMsgId);
         return;
     }
 
@@ -229,7 +235,7 @@ async function sendMessage() {
                     const event = JSON.parse(data);
                     switch (event.event) {
                         case 'step_start': {
-                            const s = createStepBlock(stepsDiv, event.step);
+                            const s = createStepBlock(stepsDiv, event.step, currentMsgId);
                             currentStep = s;
                             currentThinking = s.thinking;
                             setStatus(`Шаг ${event.step}/${event.max_steps}`);
@@ -325,7 +331,7 @@ async function sendMessage() {
     inputEl.focus();
 }
 
-async function sendMessageAsync(query) {
+async function sendMessageAsync(query, msgId) {
     const wrapper = document.createElement('div');
     wrapper.className = 'message assistant';
     messagesEl.appendChild(wrapper);
@@ -370,18 +376,18 @@ async function sendMessageAsync(query) {
                 if (result.steps) {
                     for (let i = 0; i < result.steps.length; i++) {
                         const s = result.steps[i];
-                        let existingThinking = document.getElementById(`async-thinking-${i}`);
+                        let existingThinking = document.getElementById(`${msgId}-async-thinking-${i}`);
 
                         if (!existingThinking) {
                             // New step — create block
-                            const stepBlock = createStepBlock(stepsDiv, s.step);
-                            stepBlock.thinking.id = `async-thinking-${i}`;
-                            stepBlock.block.id = `async-block-${i}`;
+                            const stepBlock = createStepBlock(stepsDiv, s.step, msgId);
+                            stepBlock.thinking.id = `${msgId}-async-thinking-${i}`;
+                            stepBlock.block.id = `${msgId}-async-block-${i}`;
                             // Collapse previous steps
                             if (i > 0) {
-                                const prevThink = document.getElementById(`async-thinking-${i-1}`);
+                                const prevThink = document.getElementById(`${msgId}-async-thinking-${i-1}`);
                                 if (prevThink) prevThink.classList.remove('expanded');
-                                const prevBlock = document.getElementById(`async-block-${i-1}`);
+                                const prevBlock = document.getElementById(`${msgId}-async-block-${i-1}`);
                                 if (prevBlock) {
                                     const prevHeader = prevBlock.querySelector('.step-header');
                                     if (prevHeader) prevHeader.classList.remove('expanded');
@@ -398,7 +404,7 @@ async function sendMessageAsync(query) {
                         existingThinking.scrollTop = existingThinking.scrollHeight;
 
                         // Update tools
-                        const block = document.getElementById(`async-block-${i}`);
+                        const block = document.getElementById(`${msgId}-async-block-${i}`);
                         if (block) {
                             block.querySelectorAll('.step-tool').forEach(el => el.remove());
                             s.tools.forEach(t => {
