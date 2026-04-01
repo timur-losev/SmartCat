@@ -32,9 +32,24 @@ const sampleQ = SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.len
 const sampleTextEl = document.getElementById('sample-text');
 if (sampleTextEl) sampleTextEl.textContent = sampleQ;
 
+let lastQuery = '';
+
 function useSample() {
     inputEl.value = sampleQ;
     sendMessage();
+}
+
+function retryLast() {
+    if (lastQuery && !isStreaming) {
+        // Remove the failed message pair
+        const msgs = messagesEl.querySelectorAll('.message');
+        if (msgs.length >= 2) {
+            msgs[msgs.length - 1].remove(); // assistant (error)
+            msgs[msgs.length - 2].remove(); // user
+        }
+        inputEl.value = lastQuery;
+        sendMessage();
+    }
 }
 
 function hideWelcome() {
@@ -97,6 +112,7 @@ async function sendMessage() {
     isStreaming = true;
     sendBtn.disabled = true;
     inputEl.value = '';
+    lastQuery = query;
 
     hideWelcome();
     addMessage('user', query);
@@ -244,8 +260,12 @@ async function sendMessage() {
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
     } catch (err) {
-        answerText = `Ошибка подключения: ${err.message}`;
-        renderAnswer();
+        // Show retry button on connection error
+        answerDiv.innerHTML = `
+            <div style="color:#f59e0b">Соединение прервано</div>
+            <button onclick="retryLast()" style="margin-top:8px;padding:6px 16px;border-radius:8px;border:1px solid #53d8fb;background:transparent;color:#53d8fb;cursor:pointer;font-size:13px">
+                Повторить запрос
+            </button>`;
         setStatus('Отключено');
     }
 
