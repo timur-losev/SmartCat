@@ -102,7 +102,10 @@ class AsyncReactAgent:
 
         final_answer = ""
 
+        log.info("agent.web.start", query=query[:60], session=session_id)
+
         for step in range(self.max_steps):
+            log.info("agent.web.step", step=step + 1, max=self.max_steps)
             yield {"event": "step_start", "step": step + 1, "max_steps": self.max_steps}
 
             # Stream LLM response
@@ -118,10 +121,12 @@ class AsyncReactAgent:
                 # Final answer
                 answer_match = re.search(r"Answer:\s*(.*)", full_response, re.DOTALL | re.IGNORECASE)
                 final_answer = answer_match.group(1).strip() if answer_match else full_response
+                log.info("agent.web.done", steps=step + 1, answer_len=len(final_answer))
                 yield {"event": "done", "steps_used": step + 1}
                 break
 
             tool_name, tool_args = tool_call
+            log.info("agent.web.tool_call", tool=tool_name, args=tool_args)
             yield {"event": "tool_call", "tool": tool_name, "args": tool_args}
 
             # Execute tool in thread (synchronous tools)
@@ -131,6 +136,7 @@ class AsyncReactAgent:
                 tool_result = f"Error: {e}"
 
             preview = tool_result[:300] + "..." if len(tool_result) > 300 else tool_result
+            log.info("agent.web.tool_result", tool=tool_name, result_len=len(tool_result))
             yield {"event": "tool_result", "tool": tool_name, "preview": preview}
 
             # Add to messages for next step
