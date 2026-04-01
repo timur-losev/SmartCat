@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartCat - Email Search Agent</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="header">
+        <h1>SmartCat</h1>
+        <span class="status" id="status">Connecting...</span>
+    </div>
+
+    <div id="messages">
+        <div class="message assistant">
+            Hello! I'm SmartCat, your email search assistant.
+            Ask me anything about the Enron email corpus — I can search emails,
+            find specific people, look up deals, and analyze communication patterns.
+        </div>
+    </div>
+
+    <div id="input-area">
+        <input type="text" id="query-input" placeholder="Ask about the email corpus..." autofocus>
+        <button id="send-btn">Send</button>
+    </div>
+
+    <script src="chat.js"></script>
+</body>
+</html>
