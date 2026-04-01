@@ -99,7 +99,7 @@ async function sendMessage() {
             for (const line of lines) {
                 if (!line.startsWith('data: ')) continue;
                 const data = line.slice(6).trim();
-                if (data === '[DONE]') continue;
+                if (data === '[DONE]') break;
 
                 try {
                     const event = JSON.parse(data);
@@ -112,6 +112,10 @@ async function sendMessage() {
                             break;
                         case 'token':
                             const text = event.text || '';
+                            // Accumulate all tokens for fallback
+                            if (!assistantDiv._fullText) assistantDiv._fullText = '';
+                            assistantDiv._fullText += text;
+
                             if (text.includes('Answer:')) {
                                 answerMode = true;
                                 const after = text.split('Answer:')[1] || '';
@@ -133,9 +137,9 @@ async function sendMessage() {
                             break;
                         case 'done':
                             setStatus(`Done (${event.steps_used} steps)`);
-                            // If no answer was detected, show everything
+                            // Fallback: if no "Answer:" marker was found, show full response
                             if (!answerMode && assistantDiv.textContent === '') {
-                                // Fallback: show full response
+                                assistantDiv.textContent = assistantDiv._fullText || 'No answer generated.';
                             }
                             break;
                         case 'error':
