@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SmartCat - Email Search Agent</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="header">
@@ -13,9 +15,17 @@
     </div>
 
     <div id="messages">
-        <div class="message assistant">
-            <div class="answer-text">Привет! Я SmartCat, ассистент по поиску email.
-Спрашивай что угодно о корпусе Enron — я умею искать письма, находить людей, сделки и анализировать переписку.</div>
+        <div id="welcome">
+            <div class="welcome-emoji">&#128049;</div>
+            <h2 class="welcome-title">SmartCat</h2>
+            <p class="welcome-desc">
+                AI-ассистент для поиска и анализа email-переписки.<br>
+                245K писем Enron, гибридный поиск, 31K QA-пар.
+            </p>
+            <div class="welcome-sample" id="sample-question" onclick="useSample()">
+                <div class="welcome-sample-label">Попробуй спросить:</div>
+                <div class="welcome-sample-text" id="sample-text"></div>
+            </div>
         </div>
     </div>
 

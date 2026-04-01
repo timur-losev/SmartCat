@@ -6,6 +6,42 @@ const statusEl = document.getElementById('status');
 let sessionId = null;
 let isStreaming = false;
 
+const SAMPLE_QUESTIONS = [
+    "Когда Enron подал заявление о банкротстве по Chapter 11?",
+    "Кто отправил письмо о бонусах перед банкротством и какая сумма упоминалась?",
+    "Кто такой Jeff Dasovich и какова была его роль?",
+    "Когда PG&E подала заявление о банкротстве?",
+    "Кто были самые частые отправители писем в Enron?",
+    "Кто такая Sara Shackleton и в каком отделе она работала?",
+    "За что отвечала Tana Jones судя по её переписке?",
+    "Кто были ключевые люди в обсуждении Калифорнийского энергетического кризиса?",
+    "Что произошло в Enron в октябре 2001 года?",
+    "Найди письма об уничтожении документов Arthur Andersen",
+    "Когда Ken Lay отправил последнее корпоративное письмо?",
+    "Какие основные юридические вопросы обсуждались в переписке Enron?",
+    "Найди обсуждения контрактов ISDA и торговых соглашений",
+    "Какие стратегии торговли природным газом обсуждались?",
+    "Какие предупреждающие знаки существовали перед крахом Enron?",
+    "Какая связь между Калифорнийским энергетическим кризисом и торговлей Enron?",
+    "Были ли письма, указывающие на сокрытие информации сотрудниками?",
+    "Кто были ключевые лица, принимающие решения в последние месяцы?",
+];
+
+// Set random sample question
+const sampleQ = SAMPLE_QUESTIONS[Math.floor(Math.random() * SAMPLE_QUESTIONS.length)];
+const sampleTextEl = document.getElementById('sample-text');
+if (sampleTextEl) sampleTextEl.textContent = sampleQ;
+
+function useSample() {
+    inputEl.value = sampleQ;
+    inputEl.focus();
+}
+
+function hideWelcome() {
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.style.display = 'none';
+}
+
 const TOOL_NAMES = {
     'search_emails': 'Поиск писем',
     'search_by_participant': 'Поиск по участнику',
@@ -62,6 +98,7 @@ async function sendMessage() {
     sendBtn.disabled = true;
     inputEl.value = '';
 
+    hideWelcome();
     addMessage('user', query);
 
     const wrapper = document.createElement('div');
