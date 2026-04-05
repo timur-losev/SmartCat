@@ -19,6 +19,6 @@ g:\Proj\Agents1\llama-cpp\llama-server.exe ^
   --host 127.0.0.1 ^
   --port 8080 ^
   --n-gpu-layers 55 ^
-  --ctx-size 32768 ^
+  --ctx-size 45056 ^
   --threads 16 ^
   --alias qwen35-moe
