@@ -166,7 +166,7 @@ function createStepBlock(stepsDiv, step, msgId) {
     block.id = `${prefix}-step-${step}`;
 
     const header = document.createElement('div');
-    header.className = 'step-header';
+    header.className = 'step-header expanded';
     header.textContent = `Шаг ${step}`;
     header.onclick = () => {
         header.classList.toggle('expanded');
