@@ -76,16 +76,19 @@ async def chat_async(req: ChatRequest):
                     if _tasks[task_id]["steps"]:
                         _tasks[task_id]["steps"][-1]["tools"].append(event.get("tool", ""))
                 elif etype == "done":
-                    # Extract answer from last step thinking
-                    full = ""
-                    for s in _tasks[task_id]["steps"]:
-                        full += s["thinking"]
+                    # Extract answer: check last step for "Answer:" marker
                     import re
-                    match = re.search(r"Answer:\s*(.*)", full, re.DOTALL | re.IGNORECASE)
+                    last_thinking = _tasks[task_id]["steps"][-1]["thinking"] if _tasks[task_id]["steps"] else ""
+                    match = re.search(r"Answer:\s*(.*)", last_thinking, re.DOTALL | re.IGNORECASE)
                     if match:
                         _tasks[task_id]["answer"] = match.group(1).strip()
                     else:
-                        _tasks[task_id]["answer"] = full
+                        # Fallback: clean up last step thinking as answer
+                        cleaned = last_thinking
+                        cleaned = re.sub(r'```tool[\s\S]*?```', '', cleaned)
+                        cleaned = re.sub(r'</?think>', '', cleaned)
+                        cleaned = re.sub(r'^Thinking:.*$', '', cleaned, flags=re.MULTILINE)
+                        _tasks[task_id]["answer"] = cleaned.strip() or "Ответ не сгенерирован."
 
             _tasks[task_id]["status"] = "done"
         except Exception as e:
@@ -104,13 +107,17 @@ async def chat_result(task_id: str):
     if not task:
         return {"status": "not_found"}
 
-    # Always return current steps progress
+    # Return current steps progress (cap thinking to prevent huge payloads)
     steps_summary = []
     for s in task["steps"]:
+        thinking = s["thinking"] or ""
+        # Cap at 1000 chars — last part most relevant
+        if len(thinking) > 1000:
+            thinking = "..." + thinking[-1000:]
         steps_summary.append({
             "step": s["step"],
             "tools": s["tools"],
-            "thinking": s["thinking"] if s["thinking"] else "",
+            "thinking": thinking,
         })
 
     result = {
