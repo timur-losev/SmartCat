@@ -312,7 +312,6 @@ async function sendMessage() {
                             break;
 
                         case 'done':
-                            hideContext();
                             setStatus(`Готово (${event.steps_used} шагов)`);
                             if (!answerText) {
                                 answerText = 'Ответ не сгенерирован.';

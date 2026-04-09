@@ -121,9 +121,10 @@ class AsyncReactAgent:
         log.info("agent.web.start", query=query[:60], session=session_id)
 
         for step in range(self.max_steps):
-            # Approximate token count (~4 chars per token)
+            # Approximate token count
+            # Cyrillic ≈ 2-3 chars/token, English ≈ 4 chars/token, average ~3
             total_chars = sum(len(m.get("content", "")) for m in messages)
-            approx_tokens = total_chars // 4
+            approx_tokens = total_chars // 3
             context_usage = approx_tokens / 65536  # 64K context
             log.info("agent.web.step", step=step + 1, max=self.max_steps,
                      approx_tokens=approx_tokens,
