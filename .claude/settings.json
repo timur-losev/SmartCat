@@ -1,12 +1,15 @@
 {
   "mcpServers": {
     "smartcat": {
-      "command": "G:\\Proj\\SmartCat\\.venv\\Scripts\\python.exe",
-      "args": ["-m", "smartcat.mcp_server"],
-      "cwd": "G:\\Proj\\SmartCat",
-      "env": {
-        "PYTHONPATH": "src"
-      }
+      "command": "ssh",
+      "args": [
+        "-T",
+        "-o", "StrictHostKeyChecking=no",
+        "-i", "~/.ssh/id_ed25519",
+        "root@74.15.1.150",
+        "-p", "30956",
+        "PYTHONPATH=/workspace/repo/src python3 -m smartcat.mcp_server --db /workspace/data/smartcat.db"
+      ]
     }
   }
 }
