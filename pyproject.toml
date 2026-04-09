@@ -47,6 +47,9 @@ translation = [
     "argostranslate",
     "langdetect",
 ]
+mcp = [
+    "mcp[cli]>=1.0",
+]
 
 [project.scripts]
 smartcat = "smartcat.cli.main:cli"

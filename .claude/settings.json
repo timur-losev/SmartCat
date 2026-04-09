@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "smartcat": {
+      "command": "G:\\Proj\\SmartCat\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "smartcat.mcp_server"],
+      "cwd": "G:\\Proj\\SmartCat",
+      "env": {
+        "PYTHONPATH": "src"
+      }
+    }
+  }
+}
