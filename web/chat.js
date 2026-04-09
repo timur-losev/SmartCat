@@ -285,9 +285,6 @@ async function sendMessage() {
                     const event = JSON.parse(data);
                     switch (event.event) {
                         case 'step_start': {
-                            const s = createStepBlock(stepsDiv, event.step, currentMsgId);
-                            currentStep = s;
-                            currentThinking = s.thinking;
                             setStatus(`Шаг ${event.step}/${event.max_steps}`);
                             break;
                         }
@@ -299,19 +296,10 @@ async function sendMessage() {
 
                         case 'answer_start':
                             answerMode = true;
-                            if (currentThinking) {
-                                currentThinking.classList.remove('expanded');
-                                if (currentStep) currentStep.header.classList.remove('expanded');
-                            }
                             break;
 
                         case 'thinking': {
-                            let text = event.text || '';
-                            fullText += text;
-                            if (currentThinking) {
-                                currentThinking.textContent += text;
-                                currentThinking.scrollTop = currentThinking.scrollHeight;
-                            }
+                            fullText += (event.text || '');
                             break;
                         }
 
@@ -325,33 +313,19 @@ async function sendMessage() {
                                 renderAnswer();
                             } else if (text.includes('Answer:')) {
                                 answerMode = true;
-                                if (currentThinking) {
-                                    currentThinking.classList.remove('expanded');
-                                    if (currentStep) currentStep.header.classList.remove('expanded');
-                                }
                                 const after = text.split('Answer:')[1] || '';
                                 answerText = after;
                                 renderAnswer();
-                            } else if (currentThinking) {
-                                currentThinking.textContent += text;
-                                currentThinking.scrollTop = currentThinking.scrollHeight;
                             }
                             break;
                         }
 
                         case 'tool_call': {
-                            if (currentStep) {
-                                const tc = document.createElement('div');
-                                tc.className = 'step-tool';
-                                tc.textContent = TOOL_NAMES[event.tool] || event.tool;
-                                currentStep.block.appendChild(tc);
-                            }
+                            const tc = document.createElement('div');
+                            tc.className = 'step-tool';
+                            tc.textContent = TOOL_NAMES[event.tool] || event.tool;
+                            stepsDiv.appendChild(tc);
                             setStatus(`${TOOL_NAMES[event.tool] || event.tool}...`);
-                            // Collapse thinking for this step
-                            if (currentThinking) {
-                                currentThinking.classList.remove('expanded');
-                                if (currentStep) currentStep.header.classList.remove('expanded');
-                            }
                             break;
                         }
 
