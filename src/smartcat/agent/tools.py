@@ -113,7 +113,6 @@ class AgentTools:
             return f"Error executing {tool_name}: {type(e).__name__}: {e}"
 
     def _tool_search_emails(self, query: str, max_results: int = 10) -> str:
-        max_results = min(max_results, 10)  # hard cap to save context window
         results = self.searcher.search(query, top_n=30)
         if self.reranker and results:
             results = self.reranker.rerank(query, results, top_k=max_results)
@@ -152,7 +151,6 @@ class AgentTools:
         return "\n".join(lines)
 
     def _tool_search_by_participant(self, name_or_email: str, limit: int = 20) -> str:
-        limit = min(limit, 20)  # hard cap
         results = self.store.search_by_participant(name_or_email, limit=limit)
         if not results:
             return f"No emails found involving '{name_or_email}'."
@@ -170,7 +168,6 @@ class AgentTools:
     def _tool_search_by_date_range(
         self, start: str, end: str, query: Optional[str] = None, limit: int = 20
     ) -> str:
-        limit = min(limit, 20)  # hard cap
         results = self.store.search_by_date_range(start, end, query=query, limit=limit)
         if not results:
             return f"No emails found between {start} and {end}."
