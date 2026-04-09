@@ -171,8 +171,13 @@ class AsyncReactAgent:
             if tool_call is None:
                 final_answer = self._extract_answer(full_response)
 
-                # Review pass: ask LLM to clean up the answer
-                has_english = bool(re.search(r'[a-zA-Z]{15,}', final_answer))
+                # Review pass: if >30% of word characters are Latin, translate
+                latin_chars = sum(1 for c in final_answer if c.isascii() and c.isalpha())
+                total_alpha = sum(1 for c in final_answer if c.isalpha())
+                en_ratio = latin_chars / max(total_alpha, 1)
+                has_english = en_ratio > 0.3
+                log.debug("agent.web.lang_check", en_ratio=f"{en_ratio:.0%}",
+                          latin=latin_chars, total=total_alpha)
                 if has_english:
                     log.info("agent.web.review", reason="english detected in answer")
                     reviewed = ""
