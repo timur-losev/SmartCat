@@ -47,10 +47,14 @@ To use a tool, respond with a JSON block in this exact format:
 
 ## Response format
 When calling a tool: briefly explain your reasoning in English, then output the tool call.
-When giving your FINAL answer: write ONLY "Answer:" followed by the answer text.
-- The answer MUST be ENTIRELY in the user's language. If the user writes in Russian, the ENTIRE answer must be in Russian. No English at all.
-- Do NOT include any reasoning, thinking, or English text after "Answer:". Only the clean answer.
-- ALWAYS use the "Answer:" prefix for your final response.
+When giving your FINAL answer, wrap it in <answer> tags:
+<answer>
+Your complete answer here, ENTIRELY in the user's language.
+Include citations (Message-ID, date, sender) inside the tags.
+</answer>
+- If the user writes in Russian, EVERYTHING inside <answer> tags MUST be in Russian. No English text at all.
+- Do NOT put any reasoning or thinking inside <answer> tags. Only the clean answer.
+- ALWAYS use <answer></answer> tags for your final response.
 """
 
 _TOOL_CALL_PATTERN = re.compile(
@@ -183,9 +187,13 @@ class ReactAgent:
 
         # Extract final answer from the last response
         last = full_response[-1] if full_response else ""
-        # Try to find explicit "Answer:" section
-        answer_match = re.search(r"Answer:\s*(.*)", last, re.DOTALL | re.IGNORECASE)
-        final = answer_match.group(1).strip() if answer_match else last
+        # Try to find answer in <answer> tags
+        answer_tag = re.search(r"<answer>\s*(.*?)\s*</answer>", last, re.DOTALL | re.IGNORECASE)
+        if answer_tag:
+            final = answer_tag.group(1).strip()
+        else:
+            answer_match = re.search(r"(?:Answer|Ответ)\s*[:\-]\s*(.*)", last, re.DOTALL | re.IGNORECASE)
+            final = answer_match.group(1).strip() if answer_match else last
 
         # Save to conversation history for multi-turn context
         self._history.append({"role": "user", "content": user_query})

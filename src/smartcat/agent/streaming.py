@@ -49,10 +49,14 @@ To use a tool, respond with a JSON block in this exact format:
 
 ## Response format
 When calling a tool: briefly explain your reasoning in English, then output the tool call.
-When giving your FINAL answer: write ONLY "Answer:" followed by the answer text.
-- The answer MUST be ENTIRELY in the user's language. If the user writes in Russian, the ENTIRE answer must be in Russian. No English at all.
-- Do NOT include any reasoning, thinking, or English text after "Answer:". Only the clean answer.
-- ALWAYS use the "Answer:" prefix for your final response.
+When giving your FINAL answer, wrap it in <answer> tags:
+<answer>
+Your complete answer here, ENTIRELY in the user's language.
+Include citations (Message-ID, date, sender) inside the tags.
+</answer>
+- If the user writes in Russian, EVERYTHING inside <answer> tags MUST be in Russian. No English text at all.
+- Do NOT put any reasoning or thinking inside <answer> tags. Only the clean answer.
+- ALWAYS use <answer></answer> tags for your final response.
 """
 
 _TOOL_CALL_PATTERN = re.compile(
@@ -159,28 +163,23 @@ class AsyncReactAgent:
             tool_call = self._extract_tool_call(full_response)
 
             if tool_call is None:
-                # Final answer — extract answer portion
-                # Find LAST "Answer:" or "Ответ:" marker (model may output multiple)
-                all_markers = list(re.finditer(
-                    r"(?:^|\n)\s*(?:Answer|Ответ)\s*[:\-]\s*",
-                    full_response, re.IGNORECASE
-                ))
-                if all_markers:
-                    last = all_markers[-1]
-                    final_answer = full_response[last.end():].strip()
+                # Final answer — extract from <answer> tags
+                answer_tag = re.search(
+                    r"<answer>\s*(.*?)\s*</answer>",
+                    full_response, re.DOTALL | re.IGNORECASE
+                )
+                if answer_tag:
+                    final_answer = answer_tag.group(1).strip()
                 else:
-                    # No marker — find last substantial Russian paragraph
-                    # Split by double newline and find last block with Cyrillic
-                    blocks = full_response.split("\n\n")
-                    ru_blocks = [b.strip() for b in blocks
-                                 if re.search(r"[а-яА-ЯёЁ]{10,}", b)]
-                    if ru_blocks:
-                        # Take all Russian blocks (answer may span multiple paragraphs)
-                        # Find first Russian block index
-                        first_ru = next(i for i, b in enumerate(blocks)
-                                        if re.search(r"[а-яА-ЯёЁ]{10,}", b))
-                        final_answer = "\n\n".join(blocks[first_ru:]).strip()
+                    # Fallback: try Answer: marker
+                    answer_marker = re.search(
+                        r"(?:Answer|Ответ)\s*[:\-]\s*(.*)",
+                        full_response, re.DOTALL | re.IGNORECASE
+                    )
+                    if answer_marker:
+                        final_answer = answer_marker.group(1).strip()
                     else:
+                        # Last resort: take full response
                         final_answer = full_response
 
                 # Fix missing spaces: Cyrillic↔digits, )digits, digits(
