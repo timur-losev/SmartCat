@@ -173,6 +173,24 @@ class AsyncReactAgent:
             if tool_call is None:
                 final_answer = self._extract_answer(full_response)
 
+                # Detect thinking-as-answer: model reasoning without acting
+                thinking_patterns = ["The user", "I need to", "I should", "I will",
+                                     "I have", "Plan:", "Let me", "I can", "Wait,"]
+                is_thinking = (step == 0
+                               and any(final_answer.startswith(p) for p in thinking_patterns))
+                if is_thinking and step < self.max_steps - 1:
+                    # Push model to actually answer or use tools
+                    log.warning("agent.web.thinking_as_answer",
+                                answer_preview=final_answer[:100])
+                    messages.append({"role": "assistant", "content": full_response})
+                    messages.append({
+                        "role": "user",
+                        "content": "You are thinking out loud instead of answering. "
+                                   "Either call a tool to find information, or provide "
+                                   "your final answer in <answer></answer> tags in Russian.",
+                    })
+                    continue  # retry this step
+
                 # Review pass: detect English sentences (not just names/IDs)
                 # Count English words (3+ letters, not in common name/tech patterns)
                 en_words = re.findall(r'\b[a-zA-Z]{4,}\b', final_answer)
