@@ -116,12 +116,17 @@ class AsyncReactAgent:
                      approx_tokens=approx_tokens,
                      context_pct=f"{context_usage:.0%}")
 
+            # Always emit context usage for UI bar
+            yield {"event": "context_update",
+                   "usage": f"{min(context_usage * 100, 100):.0f}",
+                   "approx_tokens": approx_tokens}
+
             if context_usage > 0.85:
                 log.warning("agent.web.context_high",
                             approx_tokens=approx_tokens,
                             pct=f"{context_usage:.0%}")
                 yield {"event": "context_warning",
-                       "usage": f"{context_usage:.0%}",
+                       "usage": f"{min(context_usage * 100, 100):.0f}",
                        "approx_tokens": approx_tokens}
 
             yield {"event": "step_start", "step": step + 1, "max_steps": self.max_steps}

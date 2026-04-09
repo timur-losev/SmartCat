@@ -157,6 +157,22 @@ function setStatus(text) {
     statusEl.textContent = text;
 }
 
+const contextBar = document.getElementById('context-bar');
+const contextFill = document.getElementById('context-fill');
+const contextLabel = document.getElementById('context-label');
+
+function updateContext(usage, tokens) {
+    contextBar.style.display = '';
+    const pct = parseInt(usage) || 0;
+    contextFill.style.width = pct + '%';
+    contextFill.className = pct >= 90 ? 'critical' : pct >= 70 ? 'warning' : '';
+    contextLabel.textContent = `ctx ${pct}%`;
+}
+
+function hideContext() {
+    contextBar.style.display = 'none';
+}
+
 let _msgCounter = 0;
 
 function createStepBlock(stepsDiv, step, msgId) {
@@ -276,12 +292,38 @@ async function sendMessage() {
                             break;
                         }
 
+                        case 'context_warning':
+                        case 'context_update':
+                            updateContext(event.usage, event.approx_tokens);
+                            break;
+
+                        case 'answer_start':
+                            answerMode = true;
+                            if (currentThinking) {
+                                currentThinking.classList.remove('expanded');
+                                if (currentStep) currentStep.header.classList.remove('expanded');
+                            }
+                            break;
+
+                        case 'thinking': {
+                            let text = event.text || '';
+                            fullText += text;
+                            if (currentThinking) {
+                                currentThinking.textContent += text;
+                                currentThinking.scrollTop = currentThinking.scrollHeight;
+                            }
+                            break;
+                        }
+
                         case 'token': {
                             let text = event.text || '';
                             text = text.replace(/<\/?think>/g, '');
                             fullText += text;
 
-                            if (text.includes('Answer:')) {
+                            if (answerMode) {
+                                answerText += text;
+                                renderAnswer();
+                            } else if (text.includes('Answer:')) {
                                 answerMode = true;
                                 if (currentThinking) {
                                     currentThinking.classList.remove('expanded');
@@ -290,13 +332,8 @@ async function sendMessage() {
                                 const after = text.split('Answer:')[1] || '';
                                 answerText = after;
                                 renderAnswer();
-                            } else if (answerMode) {
-                                answerText += text;
-                                renderAnswer();
                             } else if (currentThinking) {
-                                // Append to thinking block
                                 currentThinking.textContent += text;
-                                // Auto-scroll thinking
                                 currentThinking.scrollTop = currentThinking.scrollHeight;
                             }
                             break;
@@ -323,6 +360,7 @@ async function sendMessage() {
                             break;
 
                         case 'done':
+                            hideContext();
                             setStatus(`Готово (${event.steps_used} шагов)`);
                             if (!answerMode && !answerText) {
                                 let cleaned = fullText
