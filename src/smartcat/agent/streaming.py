@@ -159,6 +159,13 @@ class AsyncReactAgent:
                     if clean.strip():
                         yield {"event": "thinking", "text": clean}
 
+            # Detect LLM errors early
+            if full_response.startswith("Error:"):
+                log.error("agent.web.llm_down", response=full_response[:200])
+                yield {"event": "error", "message": full_response}
+                final_answer = full_response
+                break
+
             # Check for tool call
             tool_call = self._extract_tool_call(full_response)
 
@@ -246,8 +253,22 @@ class AsyncReactAgent:
                         except json.JSONDecodeError:
                             continue
             except httpx.ConnectError:
+                log.error("llm.connection_failed", url=self.llm_url,
+                          msg="LLM server is DOWN — cannot connect")
                 yield "Error: Cannot connect to LLM server. Is llama-server running?"
+            except httpx.ReadError as e:
+                log.error("llm.read_error", url=self.llm_url, error=str(e),
+                          msg="LLM server dropped connection mid-response")
+                yield f"Error: LLM connection lost: {e}"
+            except httpx.HTTPStatusError as e:
+                log.error("llm.http_error", url=self.llm_url,
+                          status=e.response.status_code, error=str(e),
+                          msg="LLM server returned HTTP error")
+                yield f"Error: LLM HTTP {e.response.status_code}: {e}"
             except Exception as e:
+                log.error("llm.unexpected_error", url=self.llm_url,
+                          error=str(e), error_type=type(e).__name__,
+                          msg="Unexpected LLM error")
                 yield f"Error: {e}"
 
     def _extract_tool_call(self, text: str) -> Optional[tuple[str, dict]]:
