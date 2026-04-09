@@ -111,7 +111,7 @@ class AsyncReactAgent:
             # Approximate token count (~4 chars per token)
             total_chars = sum(len(m.get("content", "")) for m in messages)
             approx_tokens = total_chars // 4
-            context_usage = approx_tokens / 65536  # 64K context
+            context_usage = approx_tokens / 32768  # 32K context
             log.info("agent.web.step", step=step + 1, max=self.max_steps,
                      approx_tokens=approx_tokens,
                      context_pct=f"{context_usage:.0%}")
