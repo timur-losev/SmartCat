@@ -169,24 +169,7 @@ class AsyncReactAgent:
             tool_call = self._extract_tool_call(full_response)
 
             if tool_call is None:
-                # Final answer — extract from <answer> tags
-                answer_tag = re.search(
-                    r"<answer>\s*(.*?)\s*</answer>",
-                    full_response, re.DOTALL | re.IGNORECASE
-                )
-                if answer_tag:
-                    final_answer = answer_tag.group(1).strip()
-                else:
-                    # Fallback: try Answer:/Ответ: marker
-                    answer_marker = re.search(
-                        r"(?:Answer|Ответ)\s*[:\-]\s*(.*)",
-                        full_response, re.DOTALL | re.IGNORECASE
-                    )
-                    if answer_marker:
-                        final_answer = answer_marker.group(1).strip()
-                    else:
-                        # Last resort: strip English thinking, keep Russian
-                        final_answer = full_response
+                final_answer = self._extract_answer(full_response)
 
 
                 # Fix missing spaces: Cyrillic↔digits, )digits, digits(
@@ -295,6 +278,44 @@ class AsyncReactAgent:
                           error=str(e), error_type=type(e).__name__,
                           msg="Unexpected LLM error")
                 yield f"Error: {e}"
+
+    @staticmethod
+    def _extract_answer(full_response: str) -> str:
+        """Extract clean answer from LLM response, stripping thinking.
+
+        Priority:
+        1. <answer>...</answer> tags
+        2. Last "Answer:" or "Ответ:" marker
+        3. All Cyrillic paragraphs (strip English-only paragraphs)
+        4. Full response (last resort)
+        """
+        # 1. <answer> tags — most reliable
+        answer_tag = re.search(
+            r"<answer>\s*(.*?)\s*</answer>",
+            full_response, re.DOTALL | re.IGNORECASE
+        )
+        if answer_tag:
+            return answer_tag.group(1).strip()
+
+        # 2. Last Answer:/Ответ: marker
+        all_markers = list(re.finditer(
+            r"(?:Answer|Ответ)\s*[:\-]\s*",
+            full_response, re.IGNORECASE
+        ))
+        if all_markers:
+            return full_response[all_markers[-1].end():].strip()
+
+        # 3. Collect all paragraphs containing Cyrillic (10+ chars)
+        paragraphs = re.split(r"\n{2,}", full_response)
+        cyrillic_paras = [
+            p.strip() for p in paragraphs
+            if re.search(r"[а-яА-ЯёЁ]{10,}", p)
+        ]
+        if cyrillic_paras:
+            return "\n\n".join(cyrillic_paras)
+
+        # 4. Last resort
+        return full_response
 
     def _extract_tool_call(self, text: str) -> Optional[tuple[str, dict]]:
         match = _TOOL_CALL_PATTERN.search(text)
