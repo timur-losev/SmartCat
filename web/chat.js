@@ -363,13 +363,23 @@ async function sendMessage() {
                             hideContext();
                             setStatus(`Готово (${event.steps_used} шагов)`);
                             if (!answerMode && !answerText) {
-                                let cleaned = fullText
-                                    .replace(/```tool[\s\S]*?```/g, '')
-                                    .replace(/<think>[\s\S]*?<\/think>/g, '')
-                                    .replace(/<think>[\s\S]*/g, '')
-                                    .replace(/^Thinking:.*$/gm, '')
-                                    .replace(/^Tool result[\s\S]*?(?=\n\n|$)/gm, '')
-                                    .trim();
+                                // Gemma sometimes skips "Answer:" prefix
+                                // Try to extract answer from fullText
+                                let cleaned = fullText;
+                                // Remove tool calls
+                                cleaned = cleaned.replace(/```tool[\s\S]*?```/g, '');
+                                // Remove think tags
+                                cleaned = cleaned.replace(/<\/?think>/g, '');
+                                // Remove "Thinking:" blocks (up to next double newline or end)
+                                cleaned = cleaned.replace(/Thinking:[\s\S]*?(?=\n\n[A-ZА-Я]|$)/g, '');
+                                // Remove explicit "Answer:" prefix if present
+                                const answerIdx = cleaned.search(/Answer:\s*/i);
+                                if (answerIdx >= 0) {
+                                    cleaned = cleaned.slice(answerIdx).replace(/^Answer:\s*/i, '');
+                                }
+                                // Remove tool result references
+                                cleaned = cleaned.replace(/^Tool result[\s\S]*?(?=\n\n|$)/gm, '');
+                                cleaned = cleaned.trim();
                                 answerText = cleaned || 'Ответ не сгенерирован.';
                                 renderAnswer();
                             }

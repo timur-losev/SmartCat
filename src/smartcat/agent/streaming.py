@@ -111,7 +111,7 @@ class AsyncReactAgent:
             # Approximate token count (~4 chars per token)
             total_chars = sum(len(m.get("content", "")) for m in messages)
             approx_tokens = total_chars // 4
-            context_usage = approx_tokens / 16384  # assume 16K context
+            context_usage = approx_tokens / 32768  # 32K context
             log.info("agent.web.step", step=step + 1, max=self.max_steps,
                      approx_tokens=approx_tokens,
                      context_pct=f"{context_usage:.0%}")
@@ -170,11 +170,24 @@ class AsyncReactAgent:
             tool_call = self._extract_tool_call(full_response)
 
             if tool_call is None:
-                # Final answer
+                # Final answer — extract answer portion
                 answer_match = re.search(r"Answer:\s*(.*)", full_response, re.DOTALL | re.IGNORECASE)
                 final_answer = answer_match.group(1).strip() if answer_match else full_response
+
+                # If no Answer: prefix, try to strip thinking preamble
+                if not answer_match:
+                    # Remove "Thinking: ..." blocks
+                    cleaned = re.sub(r"^Thinking:.*?(?=\n\n[А-ЯA-Z*\d•\-])", "",
+                                     final_answer, flags=re.DOTALL)
+                    if cleaned.strip():
+                        final_answer = cleaned.strip()
+
                 log.info("agent.web.done", steps=step + 1, answer_len=len(final_answer),
                          answer=final_answer[:300])
+                # Send the final answer text explicitly for frontend
+                if not in_answer:
+                    yield {"event": "answer_start"}
+                    yield {"event": "token", "text": final_answer}
                 yield {"event": "done", "steps_used": step + 1}
                 break
 
