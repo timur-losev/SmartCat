@@ -173,24 +173,27 @@ class AsyncReactAgent:
             if tool_call is None:
                 final_answer = self._extract_answer(full_response)
 
-                # Review pass: if >30% of word characters are Latin, translate
-                latin_chars = sum(1 for c in final_answer if c.isascii() and c.isalpha())
-                total_alpha = sum(1 for c in final_answer if c.isalpha())
-                en_ratio = latin_chars / max(total_alpha, 1)
-                has_english = en_ratio > 0.3
-                log.debug("agent.web.lang_check", en_ratio=f"{en_ratio:.0%}",
-                          latin=latin_chars, total=total_alpha)
-                if has_english:
-                    log.info("agent.web.review", reason="english detected in answer")
+                # Review pass: detect English sentences (not just names/IDs)
+                # Count English words (3+ letters, not in common name/tech patterns)
+                en_words = re.findall(r'\b[a-zA-Z]{4,}\b', final_answer)
+                # Filter out common names, technical terms, email parts
+                skip = {'enron', 'email', 'message', 'thread', 'java', 'mail', 'thyme',
+                        'evans', 'from', 'subject', 'date', 'score', 'corp', 'company'}
+                en_words = [w for w in en_words if w.lower() not in skip]
+                cyrillic_chars = sum(1 for c in final_answer if '\u0400' <= c <= '\u04ff')
+                needs_review = len(en_words) > 10 and cyrillic_chars < len(final_answer) * 0.3
+                log.debug("agent.web.lang_check", en_words=len(en_words),
+                           cyrillic_chars=cyrillic_chars, needs_review=needs_review)
+                if needs_review:
+                    log.info("agent.web.review", en_words=len(en_words))
                     reviewed = ""
                     review_prompt = [
-                        {"role": "system", "content": "You are a translator. Output ONLY the translated text, nothing else."},
-                        {"role": "user", "content": f"Translate the following text to Russian. Keep all names, Message-IDs, dates, and technical terms as-is. Output ONLY the Russian text:\n\n{final_answer}"},
+                        {"role": "user", "content": f"/no_think\nПереведи на русский. Имена, даты и Message-ID оставь как есть. Выведи ТОЛЬКО перевод:\n\n{final_answer}"},
                     ]
                     async for chunk in self._stream_llm(review_prompt):
                         reviewed += chunk
                     reviewed = reviewed.strip()
-                    if reviewed and len(reviewed) > 50:
+                    if reviewed and len(reviewed) > 50 and not reviewed.startswith("*"):
                         final_answer = reviewed
                         log.info("agent.web.reviewed", answer_len=len(final_answer))
 
