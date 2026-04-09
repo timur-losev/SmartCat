@@ -237,9 +237,7 @@ async function sendMessage() {
 
     setStatus('Думаю...');
 
-    let fullText = '';
     let answerText = '';
-    let answerMode = false;
 
     function renderAnswer() {
         if (typeof marked !== 'undefined') {
@@ -294,29 +292,9 @@ async function sendMessage() {
                             updateContext(event.usage, event.approx_tokens);
                             break;
 
-                        case 'answer_start':
-                            answerMode = true;
-                            break;
-
-                        case 'thinking': {
-                            fullText += (event.text || '');
-                            break;
-                        }
-
-                        case 'token': {
-                            let text = event.text || '';
-                            text = text.replace(/<\/?think>/g, '');
-                            fullText += text;
-
-                            if (answerMode) {
-                                answerText += text;
-                                renderAnswer();
-                            } else if (text.includes('Answer:')) {
-                                answerMode = true;
-                                const after = text.split('Answer:')[1] || '';
-                                answerText = after;
-                                renderAnswer();
-                            }
+                        case 'answer': {
+                            answerText = event.text || '';
+                            renderAnswer();
                             break;
                         }
 
@@ -336,25 +314,8 @@ async function sendMessage() {
                         case 'done':
                             hideContext();
                             setStatus(`Готово (${event.steps_used} шагов)`);
-                            if (!answerMode && !answerText) {
-                                // Gemma sometimes skips "Answer:" prefix
-                                // Try to extract answer from fullText
-                                let cleaned = fullText;
-                                // Remove tool calls
-                                cleaned = cleaned.replace(/```tool[\s\S]*?```/g, '');
-                                // Remove think tags
-                                cleaned = cleaned.replace(/<\/?think>/g, '');
-                                // Remove "Thinking:" blocks (up to next double newline or end)
-                                cleaned = cleaned.replace(/Thinking:[\s\S]*?(?=\n\n[A-ZА-Я]|$)/g, '');
-                                // Remove explicit "Answer:" prefix if present
-                                const answerIdx = cleaned.search(/Answer:\s*/i);
-                                if (answerIdx >= 0) {
-                                    cleaned = cleaned.slice(answerIdx).replace(/^Answer:\s*/i, '');
-                                }
-                                // Remove tool result references
-                                cleaned = cleaned.replace(/^Tool result[\s\S]*?(?=\n\n|$)/gm, '');
-                                cleaned = cleaned.trim();
-                                answerText = cleaned || 'Ответ не сгенерирован.';
+                            if (!answerText) {
+                                answerText = 'Ответ не сгенерирован.';
                                 renderAnswer();
                             }
                             saveHistory('assistant', answerText);

@@ -147,20 +147,6 @@ class AsyncReactAgent:
                 clean = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', clean)
                 clean = re.sub(r'(\d)([а-яА-ЯёЁ])', r'\1 \2', clean)
                 full_response += clean
-                if not clean.strip():
-                    continue
-                # Stream answer tokens after "Answer:" marker
-                if "Answer:" in full_response and not in_answer:
-                    in_answer = True
-                    answer_part = full_response.split("Answer:", 1)[1]
-                    if answer_part.strip():
-                        yield {"event": "answer_start"}
-                        yield {"event": "token", "text": answer_part}
-                elif in_answer:
-                    yield {"event": "token", "text": clean}
-                else:
-                    # Everything before Answer: goes to thinking block
-                    yield {"event": "thinking", "text": clean}
 
             # Detect LLM errors early
             if full_response.startswith("Error:"):
@@ -194,10 +180,8 @@ class AsyncReactAgent:
 
                 log.info("agent.web.done", steps=step + 1, answer_len=len(final_answer),
                          answer=final_answer[:300])
-                # Send the final answer text explicitly for frontend
-                if not in_answer:
-                    yield {"event": "answer_start"}
-                    yield {"event": "token", "text": final_answer}
+                # Always send clean final answer to frontend
+                yield {"event": "answer", "text": final_answer}
                 yield {"event": "done", "steps_used": step + 1}
                 break
 
