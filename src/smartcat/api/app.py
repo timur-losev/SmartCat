@@ -5,9 +5,23 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
+
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    """Prevent proxy caching of static files (JS/CSS)."""
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        path = request.url.path
+        if path.endswith(('.js', '.css', '.html')) or path == '/':
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
 
 from smartcat.api import deps
 from smartcat.api.routes_chat import router as chat_router
@@ -26,6 +40,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="SmartCat", version="0.1.0", lifespan=lifespan)
 
+app.add_middleware(NoCacheStaticMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
