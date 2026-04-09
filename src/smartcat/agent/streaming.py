@@ -125,7 +125,8 @@ class AsyncReactAgent:
             # Cyrillic ≈ 2-3 chars/token, English ≈ 4 chars/token, average ~3
             total_chars = sum(len(m.get("content", "")) for m in messages)
             approx_tokens = total_chars // 3
-            context_usage = approx_tokens / 65536  # 64K context
+            n_ctx = await self._get_n_ctx()
+            context_usage = approx_tokens / n_ctx
             log.info("agent.web.step", step=step + 1, max=self.max_steps,
                      approx_tokens=approx_tokens,
                      context_pct=f"{context_usage:.0%}")
@@ -249,6 +250,19 @@ class AsyncReactAgent:
         # Save to session history
         history.append({"role": "user", "content": query})
         history.append({"role": "assistant", "content": final_answer})
+
+    async def _get_n_ctx(self) -> int:
+        """Get context size from llama-server /slots endpoint. Cached."""
+        if not hasattr(self, '_n_ctx_cached'):
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(f"{self.llm_url}/slots")
+                    slots = resp.json()
+                    self._n_ctx_cached = slots[0].get("n_ctx", 65536)
+                    log.info("agent.n_ctx", n_ctx=self._n_ctx_cached)
+            except Exception:
+                self._n_ctx_cached = 65536
+        return self._n_ctx_cached
 
     async def _stream_llm(self, messages: list[dict]) -> AsyncGenerator[str, None]:
         """Stream tokens from llama-server using httpx."""
