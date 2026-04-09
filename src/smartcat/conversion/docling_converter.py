@@ -43,13 +43,51 @@ def _ext_from_filename_or_mime(filename: str, content_type: str) -> str:
 class DoclingConverter:
     """Wrapper around Docling DocumentConverter for email processing."""
 
-    def __init__(self):
+    def __init__(self, ocr_enabled: bool = False,
+                 ocr_langs: list[str] | None = None,
+                 ocr_engine: str = "easyocr"):
+        """Initialize converter.
+
+        Args:
+            ocr_enabled: Enable OCR for scanned PDFs/images.
+            ocr_langs: Language codes for OCR (e.g. ["en", "ru"]).
+                       Only used when ocr_enabled=True.
+            ocr_engine: OCR backend — "surya" (faster, better quality)
+                        or "easyocr" (fallback). Only used when ocr_enabled=True.
+        """
         self._converter = None
+        self._ocr_enabled = ocr_enabled
+        self._ocr_langs = ocr_langs or ["en"]
+        self._ocr_engine = ocr_engine
+        self._surya = None
 
     def _ensure_converter(self):
         if self._converter is None:
             from docling.document_converter import DocumentConverter
-            self._converter = DocumentConverter()
+
+            if self._ocr_enabled:
+                try:
+                    from docling.datamodel.pipeline_options import (
+                        PdfPipelineOptions,
+                        EasyOcrOptions,
+                    )
+                    ocr_options = EasyOcrOptions(lang=self._ocr_langs)
+                    pipeline_options = PdfPipelineOptions(
+                        do_ocr=True,
+                        ocr_options=ocr_options,
+                    )
+                    self._converter = DocumentConverter(
+                        pipeline_options={"pdf": pipeline_options}
+                    )
+                    log.info("docling.ocr_enabled: langs=%s", self._ocr_langs)
+                except ImportError:
+                    log.warning("docling.ocr_import_failed: falling back to no OCR")
+                    self._converter = DocumentConverter()
+                except Exception as e:
+                    log.warning("docling.ocr_config_failed: %s, falling back", e)
+                    self._converter = DocumentConverter()
+            else:
+                self._converter = DocumentConverter()
 
     def convert_html(self, html: str) -> str:
         """Convert HTML string to clean markdown.
@@ -108,6 +146,31 @@ class DoclingConverter:
             log.debug("docling.unknown_format: mime=%s file=%s", content_type, filename)
             return "", 0
 
+        # PDF fast-path: check text layer before expensive OCR
+        if ext == ".pdf" and self._ocr_enabled:
+            try:
+                from smartcat.conversion.pdf_utils import pdf_needs_ocr, extract_pdf_text
+
+                if not pdf_needs_ocr(data):
+                    # Has text layer — extract directly, skip OCR
+                    text, page_count = extract_pdf_text(data)
+                    if text:
+                        log.info("pdf.has_text_layer: skipping OCR file=%s pages=%d",
+                                 filename, page_count)
+                        return text, page_count
+
+                # Needs OCR — use Surya if configured
+                if self._ocr_engine == "surya":
+                    try:
+                        return self._ocr_with_surya(data, filename)
+                    except Exception as e:
+                        log.warning("surya.failed, falling back to docling: %s", e)
+                        # Fall through to Docling
+
+            except ImportError:
+                log.debug("pymupdf not installed, skipping text-layer check")
+
+        # Default path: use Docling converter
         self._ensure_converter()
 
         try:
@@ -137,6 +200,18 @@ class DoclingConverter:
                 tmp_path.unlink(missing_ok=True)
             except Exception:
                 pass
+
+    def _ocr_with_surya(self, data: bytes, filename: str) -> tuple[str, int]:
+        """OCR a scanned PDF using standalone Surya."""
+        if self._surya is None:
+            from smartcat.conversion.surya_ocr import SuryaOCR
+            self._surya = SuryaOCR(langs=self._ocr_langs)
+
+        log.info("surya.ocr_start: file=%s", filename)
+        text, page_count = self._surya.ocr_pdf(data)
+        log.info("surya.ocr_done: file=%s pages=%d chars=%d",
+                 filename, page_count, len(text))
+        return text, page_count
 
     def is_supported(self, filename: str = "", content_type: str = "") -> bool:
         """Check if a file format is supported for conversion."""

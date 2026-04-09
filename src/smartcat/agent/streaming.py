@@ -113,15 +113,31 @@ class AsyncReactAgent:
 
             # Stream LLM response
             full_response = ""
+            in_answer = False
             async for chunk_text in self._stream_llm(messages):
                 # Filter out <think> blocks from Qwen3
                 clean = chunk_text.replace("<think>", "").replace("</think>", "")
+                # Filter out Gemma 4 thinking channel tags
+                clean = re.sub(r'<\|channel>thought\b', '', clean)
+                clean = re.sub(r'<channel\|>', '', clean)
                 # Fix Qwen3 missing spaces between Cyrillic and digits
                 clean = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', clean)
                 clean = re.sub(r'(\d)([а-яА-ЯёЁ])', r'\1 \2', clean)
                 full_response += clean
-                if clean.strip():
+                # Only stream answer portion to user, not thinking/tool calls
+                if "Answer:" in full_response and not in_answer:
+                    in_answer = True
+                    # Send everything after "Answer:"
+                    answer_part = full_response.split("Answer:", 1)[1]
+                    if answer_part.strip():
+                        yield {"event": "answer_start"}
+                        yield {"event": "token", "text": answer_part}
+                elif in_answer and clean.strip():
                     yield {"event": "token", "text": clean}
+                elif "```tool" not in full_response and not in_answer:
+                    # Stream thinking as thinking event (UI can show/hide)
+                    if clean.strip():
+                        yield {"event": "thinking", "text": clean}
 
             # Check for tool call
             tool_call = self._extract_tool_call(full_response)

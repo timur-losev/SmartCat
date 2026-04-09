@@ -53,3 +53,11 @@ AGENT_MAX_STEPS = 20
 
 # Ingestion
 INGESTION_WORKERS = 4  # for multiprocessing
+
+# OCR (for scanned PDFs)
+OCR_ENABLED = True
+OCR_LANGUAGES = ["en", "ru"]  # EasyOCR / Surya language codes
+OCR_ENGINE = "surya"  # "surya" (fast, GPU) or "easyocr" (fallback)
+
+# Translation
+TRANSLATION_SKIP_LANGS = {"en"}  # don't translate these

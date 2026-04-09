@@ -111,11 +111,21 @@ def main():
                         help="Conversion phase: html, attach, or all")
     parser.add_argument("--batch-size", type=int, default=500,
                         help="Commit every N items")
+    parser.add_argument("--ocr-engine", choices=["surya", "easyocr"],
+                        default=None, help="OCR engine (default from config)")
     args = parser.parse_args()
+
+    from smartcat.config import OCR_ENABLED, OCR_LANGUAGES, OCR_ENGINE
 
     store = EmailStore(Path(args.db))
     store.connect()
-    converter = DoclingConverter()
+
+    ocr_engine = args.ocr_engine if hasattr(args, "ocr_engine") else OCR_ENGINE
+    converter = DoclingConverter(
+        ocr_enabled=OCR_ENABLED,
+        ocr_langs=OCR_LANGUAGES,
+        ocr_engine=ocr_engine,
+    )
 
     t0 = time.time()
 

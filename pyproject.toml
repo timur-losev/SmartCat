@@ -38,6 +38,15 @@ api = [
     "uvicorn>=0.29",
     "httpx>=0.27",
 ]
+ocr = [
+    "surya-ocr",
+    "easyocr",
+    "pymupdf",
+]
+translation = [
+    "argostranslate",
+    "langdetect",
+]
 
 [project.scripts]
 smartcat = "smartcat.cli.main:cli"
@@ -51,3 +60,6 @@ target-version = "py311"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow (downloads models, deselect with '-m \"not slow\"')",
+]
