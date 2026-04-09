@@ -444,10 +444,12 @@ class EmailStore:
     def _sanitize_fts_query(query: str) -> str:
         """Sanitize query for FTS5 MATCH: remove special chars, wrap words in quotes."""
         import re
-        # Remove FTS5 operators and special chars
-        clean = re.sub(r'[?!@#$%^&*()\[\]{}<>|\\/:;~`]', ' ', query)
+        # Remove ALL FTS5 operators, quotes, apostrophes, and special chars
+        clean = re.sub(r'''[?!@#$%^&*()\[\]{}<>|\\/:;~`"'\-+.,]''', ' ', query)
+        # Remove FTS5 boolean operators as standalone words
+        clean = re.sub(r'\b(AND|OR|NOT|NEAR)\b', ' ', clean)
         # Split into words and wrap each in double quotes for exact matching
-        words = [w.strip() for w in clean.split() if w.strip()]
+        words = [w.strip() for w in clean.split() if w.strip() and len(w.strip()) > 1]
         if not words:
             return '""'
         return " ".join(f'"{w}"' for w in words)
