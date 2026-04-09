@@ -185,6 +185,13 @@ class AsyncReactAgent:
                     if cleaned.strip():
                         final_answer = cleaned.strip()
 
+                # Fix missing spaces: Cyrillic↔digits, )digits, digits(
+                final_answer = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', final_answer)
+                final_answer = re.sub(r'(\d)([а-яА-ЯёЁ])', r'\1 \2', final_answer)
+                final_answer = re.sub(r'(\))(\d)', r'\1 \2', final_answer)
+                final_answer = re.sub(r'(\d)(\()', r'\1 \2', final_answer)
+                final_answer = re.sub(r'([.,:;])(\d)', r'\1 \2', final_answer)
+
                 log.info("agent.web.done", steps=step + 1, answer_len=len(final_answer),
                          answer=final_answer[:300])
                 # Send the final answer text explicitly for frontend
