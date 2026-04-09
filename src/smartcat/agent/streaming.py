@@ -160,19 +160,26 @@ class AsyncReactAgent:
 
             if tool_call is None:
                 # Final answer — extract answer portion
-                # Try multiple Answer markers Gemma might use
-                answer_match = re.search(
-                    r"(?:^|\n)\s*(?:Answer|Ответ)\s*[:\-]\s*(.*)",
-                    full_response, re.DOTALL | re.IGNORECASE
-                )
-                if answer_match:
-                    final_answer = answer_match.group(1).strip()
+                # Find LAST "Answer:" or "Ответ:" marker (model may output multiple)
+                all_markers = list(re.finditer(
+                    r"(?:^|\n)\s*(?:Answer|Ответ)\s*[:\-]\s*",
+                    full_response, re.IGNORECASE
+                ))
+                if all_markers:
+                    last = all_markers[-1]
+                    final_answer = full_response[last.end():].strip()
                 else:
-                    # No marker — try to find where Russian text starts
-                    # (assumes thinking is in English, answer in Russian)
-                    ru_match = re.search(r"[А-ЯЁ][а-яёА-ЯЁ\s,]{20,}", full_response)
-                    if ru_match:
-                        final_answer = full_response[ru_match.start():].strip()
+                    # No marker — find last substantial Russian paragraph
+                    # Split by double newline and find last block with Cyrillic
+                    blocks = full_response.split("\n\n")
+                    ru_blocks = [b.strip() for b in blocks
+                                 if re.search(r"[а-яА-ЯёЁ]{10,}", b)]
+                    if ru_blocks:
+                        # Take all Russian blocks (answer may span multiple paragraphs)
+                        # Find first Russian block index
+                        first_ru = next(i for i, b in enumerate(blocks)
+                                        if re.search(r"[а-яА-ЯёЁ]{10,}", b))
+                        final_answer = "\n\n".join(blocks[first_ru:]).strip()
                     else:
                         final_answer = full_response
 
