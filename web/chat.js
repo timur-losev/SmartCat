@@ -237,6 +237,12 @@ async function sendMessage() {
 
     setStatus('Думаю...');
 
+    // Thinking indicator
+    const thinkingDots = document.createElement('div');
+    thinkingDots.className = 'thinking-dots';
+    thinkingDots.innerHTML = '<span></span><span></span><span></span>';
+    wrapper.appendChild(thinkingDots);
+
     let answerText = '';
 
     function renderAnswer() {
@@ -293,6 +299,7 @@ async function sendMessage() {
                             break;
 
                         case 'answer': {
+                            thinkingDots.remove();
                             answerText = event.text || '';
                             renderAnswer();
                             break;
@@ -321,6 +328,7 @@ async function sendMessage() {
                             break;
 
                         case 'error':
+                            thinkingDots.remove();
                             answerText = event.message || 'Ошибка';
                             renderAnswer();
                             setStatus('Ошибка');
