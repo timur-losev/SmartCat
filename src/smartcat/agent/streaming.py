@@ -171,6 +171,21 @@ class AsyncReactAgent:
             if tool_call is None:
                 final_answer = self._extract_answer(full_response)
 
+                # Review pass: ask LLM to clean up the answer
+                has_english = bool(re.search(r'[a-zA-Z]{15,}', final_answer))
+                if has_english:
+                    log.info("agent.web.review", reason="english detected in answer")
+                    reviewed = ""
+                    review_prompt = [
+                        {"role": "system", "content": "You are a translator. Output ONLY the translated text, nothing else."},
+                        {"role": "user", "content": f"Translate the following text to Russian. Keep all names, Message-IDs, dates, and technical terms as-is. Output ONLY the Russian text:\n\n{final_answer}"},
+                    ]
+                    async for chunk in self._stream_llm(review_prompt):
+                        reviewed += chunk
+                    reviewed = reviewed.strip()
+                    if reviewed and len(reviewed) > 50:
+                        final_answer = reviewed
+                        log.info("agent.web.reviewed", answer_len=len(final_answer))
 
                 # Fix missing spaces: Cyrillic↔digits, )digits, digits(
                 final_answer = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', final_answer)
