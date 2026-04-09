@@ -160,16 +160,21 @@ class AsyncReactAgent:
 
             if tool_call is None:
                 # Final answer — extract answer portion
-                answer_match = re.search(r"Answer:\s*(.*)", full_response, re.DOTALL | re.IGNORECASE)
-                final_answer = answer_match.group(1).strip() if answer_match else full_response
-
-                # If no Answer: prefix, try to strip thinking preamble
-                if not answer_match:
-                    # Remove "Thinking: ..." blocks
-                    cleaned = re.sub(r"^Thinking:.*?(?=\n\n[А-ЯA-Z*\d•\-])", "",
-                                     final_answer, flags=re.DOTALL)
-                    if cleaned.strip():
-                        final_answer = cleaned.strip()
+                # Try multiple Answer markers Gemma might use
+                answer_match = re.search(
+                    r"(?:^|\n)\s*(?:Answer|Ответ)\s*[:\-]\s*(.*)",
+                    full_response, re.DOTALL | re.IGNORECASE
+                )
+                if answer_match:
+                    final_answer = answer_match.group(1).strip()
+                else:
+                    # No marker — try to find where Russian text starts
+                    # (assumes thinking is in English, answer in Russian)
+                    ru_match = re.search(r"[А-ЯЁ][а-яёА-ЯЁ\s,]{20,}", full_response)
+                    if ru_match:
+                        final_answer = full_response[ru_match.start():].strip()
+                    else:
+                        final_answer = full_response
 
                 # Fix missing spaces: Cyrillic↔digits, )digits, digits(
                 final_answer = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', final_answer)
