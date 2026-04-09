@@ -108,6 +108,9 @@ class AsyncReactAgent:
         messages = [{"role": "system", "content": self._build_system_prompt()}]
         for h in history[-10:]:
             messages.append(h)
+        # Remind model about answer format on follow-up questions
+        if history:
+            query = query + "\n\n[Reminder: wrap your final answer in <answer></answer> tags, entirely in my language]"
         messages.append({"role": "user", "content": query})
 
         final_answer = ""
@@ -182,13 +185,6 @@ class AsyncReactAgent:
                         # Last resort: strip English thinking, keep Russian
                         final_answer = full_response
 
-                    # If answer still has English preamble + Russian text,
-                    # find where Russian starts and cut
-                    if re.search(r'[a-zA-Z]{20,}', final_answer[:100]):
-                        # Has substantial English at start — find Russian
-                        ru_start = re.search(r'[А-ЯЁ][а-яёА-ЯЁ\s,\.\-\*]{30,}', final_answer)
-                        if ru_start:
-                            final_answer = final_answer[ru_start.start():].strip()
 
                 # Fix missing spaces: Cyrillic↔digits, )digits, digits(
                 final_answer = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', final_answer)
