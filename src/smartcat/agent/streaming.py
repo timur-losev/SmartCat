@@ -171,7 +171,7 @@ class AsyncReactAgent:
                 if answer_tag:
                     final_answer = answer_tag.group(1).strip()
                 else:
-                    # Fallback: try Answer: marker
+                    # Fallback: try Answer:/Ответ: marker
                     answer_marker = re.search(
                         r"(?:Answer|Ответ)\s*[:\-]\s*(.*)",
                         full_response, re.DOTALL | re.IGNORECASE
@@ -179,8 +179,16 @@ class AsyncReactAgent:
                     if answer_marker:
                         final_answer = answer_marker.group(1).strip()
                     else:
-                        # Last resort: take full response
+                        # Last resort: strip English thinking, keep Russian
                         final_answer = full_response
+
+                    # If answer still has English preamble + Russian text,
+                    # find where Russian starts and cut
+                    if re.search(r'[a-zA-Z]{20,}', final_answer[:100]):
+                        # Has substantial English at start — find Russian
+                        ru_start = re.search(r'[А-ЯЁ][а-яёА-ЯЁ\s,\.\-\*]{30,}', final_answer)
+                        if ru_start:
+                            final_answer = final_answer[ru_start.start():].strip()
 
                 # Fix missing spaces: Cyrillic↔digits, )digits, digits(
                 final_answer = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', final_answer)
