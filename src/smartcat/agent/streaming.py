@@ -48,8 +48,11 @@ To use a tool, respond with a JSON block in this exact format:
 10. The email corpus is in English. ALWAYS translate non-English queries to English when calling tools (search_emails, search_by_participant, etc.). ALWAYS respond to the user in their language. If the user writes in Russian, your entire Answer MUST be in Russian. If in English, answer in English.
 
 ## Response format
-Think out loud, then either call a tool or give your final answer.
-Prefix your reasoning with "Thinking:" and your final answer with "Answer:".
+When calling a tool: briefly explain your reasoning in English, then output the tool call.
+When giving your FINAL answer: write ONLY "Answer:" followed by the answer text.
+- The answer MUST be ENTIRELY in the user's language. If the user writes in Russian, the ENTIRE answer must be in Russian. No English at all.
+- Do NOT include any reasoning, thinking, or English text after "Answer:". Only the clean answer.
+- ALWAYS use the "Answer:" prefix for your final response.
 """
 
 _TOOL_CALL_PATTERN = re.compile(
