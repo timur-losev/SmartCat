@@ -105,13 +105,16 @@ class AsyncReactAgent:
             step_start, token, tool_call, tool_result, answer_token, done, error
         """
         history = self._get_history(session_id)
+        log.info("agent.web.session", session=session_id,
+                 history_len=len(history), sessions_count=len(self._sessions))
         messages = [{"role": "system", "content": self._build_system_prompt()}]
         for h in history[-10:]:
             messages.append(h)
         # Remind model about answer format on follow-up questions
         if history:
-            query = query + "\n\n[Reminder: wrap your final answer in <answer></answer> tags, entirely in my language]"
-        messages.append({"role": "user", "content": query})
+            messages.append({"role": "user", "content": query + "\n\n[Remember: wrap your final answer in <answer></answer> tags, entirely in my language]"})
+        else:
+            messages.append({"role": "user", "content": query})
 
         final_answer = ""
 
