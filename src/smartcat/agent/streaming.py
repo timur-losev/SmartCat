@@ -144,20 +144,20 @@ class AsyncReactAgent:
                 clean = re.sub(r'([а-яА-ЯёЁ])(\d)', r'\1 \2', clean)
                 clean = re.sub(r'(\d)([а-яА-ЯёЁ])', r'\1 \2', clean)
                 full_response += clean
-                # Only stream answer portion to user, not thinking/tool calls
+                if not clean.strip():
+                    continue
+                # Stream answer tokens after "Answer:" marker
                 if "Answer:" in full_response and not in_answer:
                     in_answer = True
-                    # Send everything after "Answer:"
                     answer_part = full_response.split("Answer:", 1)[1]
                     if answer_part.strip():
                         yield {"event": "answer_start"}
                         yield {"event": "token", "text": answer_part}
-                elif in_answer and clean.strip():
+                elif in_answer:
                     yield {"event": "token", "text": clean}
-                elif "```tool" not in full_response and not in_answer:
-                    # Stream thinking as thinking event (UI can show/hide)
-                    if clean.strip():
-                        yield {"event": "thinking", "text": clean}
+                else:
+                    # Everything before Answer: goes to thinking block
+                    yield {"event": "thinking", "text": clean}
 
             # Detect LLM errors early
             if full_response.startswith("Error:"):
