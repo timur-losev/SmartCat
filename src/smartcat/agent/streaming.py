@@ -108,7 +108,22 @@ class AsyncReactAgent:
         log.info("agent.web.start", query=query[:60], session=session_id)
 
         for step in range(self.max_steps):
-            log.info("agent.web.step", step=step + 1, max=self.max_steps)
+            # Approximate token count (~4 chars per token)
+            total_chars = sum(len(m.get("content", "")) for m in messages)
+            approx_tokens = total_chars // 4
+            context_usage = approx_tokens / 16384  # assume 16K context
+            log.info("agent.web.step", step=step + 1, max=self.max_steps,
+                     approx_tokens=approx_tokens,
+                     context_pct=f"{context_usage:.0%}")
+
+            if context_usage > 0.85:
+                log.warning("agent.web.context_high",
+                            approx_tokens=approx_tokens,
+                            pct=f"{context_usage:.0%}")
+                yield {"event": "context_warning",
+                       "usage": f"{context_usage:.0%}",
+                       "approx_tokens": approx_tokens}
+
             yield {"event": "step_start", "step": step + 1, "max_steps": self.max_steps}
 
             # Stream LLM response
