@@ -56,6 +56,7 @@ async def chat_async(req: ChatRequest):
         "question": req.message,
         "steps": [],
         "answer": "",
+        "context_usage": "0",
     }
 
     async def run_task():
@@ -75,6 +76,8 @@ async def chat_async(req: ChatRequest):
                 elif etype == "tool_call":
                     if _tasks[task_id]["steps"]:
                         _tasks[task_id]["steps"][-1]["tools"].append(event.get("tool", ""))
+                elif etype in ("context_update", "context_warning"):
+                    _tasks[task_id]["context_usage"] = event.get("usage", "0")
                 elif etype == "answer":
                     _tasks[task_id]["answer"] = event.get("text", "")
                 elif etype == "done":
@@ -116,6 +119,7 @@ async def chat_result(task_id: str):
         "question": task["question"],
         "steps_count": len(task["steps"]),
         "steps": steps_summary,
+        "context_usage": task.get("context_usage", "0"),
     }
 
     if task["status"] == "done" or task["status"] == "error":

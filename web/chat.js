@@ -175,31 +175,6 @@ function hideContext() {
 
 let _msgCounter = 0;
 
-function createStepBlock(stepsDiv, step, msgId) {
-    const prefix = msgId || `msg-${_msgCounter}`;
-    const block = document.createElement('div');
-    block.className = 'step-block';
-    block.id = `${prefix}-step-${step}`;
-
-    const header = document.createElement('div');
-    header.className = 'step-header expanded';
-    header.textContent = `Шаг ${step}`;
-    header.onclick = () => {
-        header.classList.toggle('expanded');
-        thinking.classList.toggle('expanded');
-    };
-
-    const thinking = document.createElement('div');
-    thinking.className = 'step-thinking expanded';
-    thinking.id = `${prefix}-thinking-${step}`;
-
-    block.appendChild(header);
-    block.appendChild(thinking);
-    stepsDiv.appendChild(block);
-
-    return { block, header, thinking };
-}
-
 async function sendMessage() {
     const query = inputEl.value.trim();
     if (!query || isStreaming) return;
@@ -252,8 +227,6 @@ async function sendMessage() {
             answerDiv.textContent = answerText;
         }
     }
-    let currentStep = null;
-    let currentThinking = null;
 
     try {
         const body = { message: query };
@@ -319,6 +292,7 @@ async function sendMessage() {
                             break;
 
                         case 'done':
+                            if (thinkingDots.parentNode) thinkingDots.remove();
                             setStatus(`Готово (${event.steps_used} шагов)`);
                             if (!answerText) {
                                 answerText = 'Ответ не сгенерирован.';
@@ -420,10 +394,15 @@ async function sendMessageAsync(query, msgId) {
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                 }
 
+                // Update context bar
+                if (result.context_usage) {
+                    updateContext(result.context_usage);
+                }
+
                 setStatus(`Шаг ${result.steps_count || 1}...`);
 
                 if (result.status === 'done') {
-                    thinkingDots.remove();
+                    if (thinkingDots.parentNode) thinkingDots.remove();
                     let answer = result.answer || 'Ответ не получен.';
                     if (typeof marked !== 'undefined') {
                         answerDiv.innerHTML = marked.parse(answer);
@@ -434,7 +413,7 @@ async function sendMessageAsync(query, msgId) {
                     setStatus(`Готово (${result.steps_count} шагов)`);
                     break;
                 } else if (result.status === 'error') {
-                    thinkingDots.remove();
+                    if (thinkingDots.parentNode) thinkingDots.remove();
                     answerDiv.textContent = result.answer || 'Ошибка';
                     setStatus('Ошибка');
                     break;
@@ -445,7 +424,7 @@ async function sendMessageAsync(query, msgId) {
         }
 
         if (attempts >= maxAttempts) {
-            thinkingDots.remove();
+            if (thinkingDots.parentNode) thinkingDots.remove();
             answerDiv.textContent = 'Превышено время ожидания.';
             setStatus('Таймаут');
         }
