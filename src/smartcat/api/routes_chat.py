@@ -75,20 +75,11 @@ async def chat_async(req: ChatRequest):
                 elif etype == "tool_call":
                     if _tasks[task_id]["steps"]:
                         _tasks[task_id]["steps"][-1]["tools"].append(event.get("tool", ""))
+                elif etype == "answer":
+                    _tasks[task_id]["answer"] = event.get("text", "")
                 elif etype == "done":
-                    # Extract answer: check last step for "Answer:" marker
-                    import re
-                    last_thinking = _tasks[task_id]["steps"][-1]["thinking"] if _tasks[task_id]["steps"] else ""
-                    match = re.search(r"Answer:\s*(.*)", last_thinking, re.DOTALL | re.IGNORECASE)
-                    if match:
-                        _tasks[task_id]["answer"] = match.group(1).strip()
-                    else:
-                        # Fallback: clean up last step thinking as answer
-                        cleaned = last_thinking
-                        cleaned = re.sub(r'```tool[\s\S]*?```', '', cleaned)
-                        cleaned = re.sub(r'</?think>', '', cleaned)
-                        cleaned = re.sub(r'^Thinking:.*$', '', cleaned, flags=re.MULTILINE)
-                        _tasks[task_id]["answer"] = cleaned.strip() or "Ответ не сгенерирован."
+                    if not _tasks[task_id]["answer"]:
+                        _tasks[task_id]["answer"] = "Ответ не сгенерирован."
 
             _tasks[task_id]["status"] = "done"
         except Exception as e:
