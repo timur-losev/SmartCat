@@ -369,7 +369,11 @@ async function sendMessageAsync(query, msgId) {
     wrapper.appendChild(answerDiv);
 
     setStatus('Обрабатываю запрос...');
-    let renderedSteps = 0;
+
+    const thinkingDots = document.createElement('div');
+    thinkingDots.className = 'thinking-dots';
+    thinkingDots.innerHTML = '<span></span><span></span><span></span>';
+    wrapper.appendChild(thinkingDots);
 
     try {
         const body = { message: query };
@@ -387,6 +391,7 @@ async function sendMessageAsync(query, msgId) {
         // Poll for result
         let attempts = 0;
         const maxAttempts = 300; // 10 min max (2s intervals)
+        let renderedTools = new Set();
 
         while (attempts < maxAttempts) {
             await new Promise(r => setTimeout(r, 2000));
@@ -396,58 +401,30 @@ async function sendMessageAsync(query, msgId) {
                 const pollRes = await fetch(`/api/chat/result/${task_id}`);
                 const result = await pollRes.json();
 
-                // Render and update steps
+                // Show tool badges
                 if (result.steps) {
-                    for (let i = 0; i < result.steps.length; i++) {
-                        const s = result.steps[i];
-                        let existingThinking = document.getElementById(`${msgId}-async-thinking-${i}`);
-
-                        if (!existingThinking) {
-                            // New step — create block
-                            const stepBlock = createStepBlock(stepsDiv, s.step, msgId);
-                            stepBlock.thinking.id = `${msgId}-async-thinking-${i}`;
-                            stepBlock.block.id = `${msgId}-async-block-${i}`;
-                            // Collapse previous steps
-                            if (i > 0) {
-                                const prevThink = document.getElementById(`${msgId}-async-thinking-${i-1}`);
-                                if (prevThink) prevThink.classList.remove('expanded');
-                                const prevBlock = document.getElementById(`${msgId}-async-block-${i-1}`);
-                                if (prevBlock) {
-                                    const prevHeader = prevBlock.querySelector('.step-header');
-                                    if (prevHeader) prevHeader.classList.remove('expanded');
+                    for (const s of result.steps) {
+                        if (s.tools) {
+                            for (const t of s.tools) {
+                                const key = `${s.step}-${t}`;
+                                if (!renderedTools.has(key)) {
+                                    renderedTools.add(key);
+                                    const tc = document.createElement('div');
+                                    tc.className = 'step-tool';
+                                    tc.textContent = TOOL_NAMES[t] || t;
+                                    stepsDiv.appendChild(tc);
                                 }
                             }
-                            existingThinking = stepBlock.thinking;
-                        }
-
-                        // Update thinking text (strip think tags, fix spaces)
-                        let thinkText = (s.thinking || '')
-                            .replace(/<\/?think>/g, '')
-                            .replace(/```tool[\s\S]*?```/g, '[tool call]');
-                        existingThinking.textContent = thinkText;
-                        existingThinking.scrollTop = existingThinking.scrollHeight;
-
-                        // Update tools
-                        const block = document.getElementById(`${msgId}-async-block-${i}`);
-                        if (block) {
-                            block.querySelectorAll('.step-tool').forEach(el => el.remove());
-                            s.tools.forEach(t => {
-                                const tc = document.createElement('div');
-                                tc.className = 'step-tool';
-                                tc.textContent = TOOL_NAMES[t] || t;
-                                block.appendChild(tc);
-                            });
                         }
                     }
-                    renderedSteps = result.steps.length;
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                 }
 
                 setStatus(`Шаг ${result.steps_count || 1}...`);
 
                 if (result.status === 'done') {
+                    thinkingDots.remove();
                     let answer = result.answer || 'Ответ не получен.';
-                    answer = answer.replace(/<\/?think>/g, '');
                     if (typeof marked !== 'undefined') {
                         answerDiv.innerHTML = marked.parse(answer);
                     } else {
@@ -457,17 +434,18 @@ async function sendMessageAsync(query, msgId) {
                     setStatus(`Готово (${result.steps_count} шагов)`);
                     break;
                 } else if (result.status === 'error') {
+                    thinkingDots.remove();
                     answerDiv.textContent = result.answer || 'Ошибка';
                     setStatus('Ошибка');
                     break;
                 }
             } catch (pollErr) {
-                // Network blip during poll — keep trying
-                setStatus(`Переподключаюсь... (${attempts * 5}с)`);
+                setStatus(`Переподключаюсь... (${attempts * 2}с)`);
             }
         }
 
         if (attempts >= maxAttempts) {
+            thinkingDots.remove();
             answerDiv.textContent = 'Превышено время ожидания.';
             setStatus('Таймаут');
         }
