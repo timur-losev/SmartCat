@@ -191,15 +191,26 @@ class AsyncReactAgent:
                     })
                     continue  # retry this step
 
-                # Review pass: detect English sentences (not just names/IDs)
-                # Count English words (3+ letters, not in common name/tech patterns)
+                # Review pass: detect English at the START of answer
+                # If answer begins with English sentence, strip it
+                starts_with_english = bool(re.match(r'^[A-Z][a-zA-Z\s,.\'"()-]{20,}', final_answer))
+                if starts_with_english:
+                    # Find where Russian text starts and cut English preamble
+                    ru_match = re.search(r'[А-ЯЁ][а-яёА-ЯЁ\s,.\-\*\(]{20,}', final_answer)
+                    if ru_match and ru_match.start() > 0:
+                        cut = final_answer[ru_match.start():]
+                        log.info("agent.web.cut_english_preamble",
+                                 cut_chars=ru_match.start(),
+                                 original_len=len(final_answer))
+                        final_answer = cut
+
+                # If still mostly English after cut, send to LLM for translation
                 en_words = re.findall(r'\b[a-zA-Z]{4,}\b', final_answer)
-                # Filter out common names, technical terms, email parts
                 skip = {'enron', 'email', 'message', 'thread', 'java', 'mail', 'thyme',
                         'evans', 'from', 'subject', 'date', 'score', 'corp', 'company'}
                 en_words = [w for w in en_words if w.lower() not in skip]
                 cyrillic_chars = sum(1 for c in final_answer if '\u0400' <= c <= '\u04ff')
-                needs_review = len(en_words) > 10 and cyrillic_chars < len(final_answer) * 0.3
+                needs_review = len(en_words) > 15 and cyrillic_chars < len(final_answer) * 0.2
                 log.debug("agent.web.lang_check", en_words=len(en_words),
                            cyrillic_chars=cyrillic_chars, needs_review=needs_review)
                 if needs_review:
